@@ -2,9 +2,10 @@ package test_pack_init
 
 import (
 	"bytes"
-	"github.com/lunixbochs/struc"
 	"sync"
 	"testing"
+
+	"github.com/shengyanli1982/struc/v2"
 )
 
 type Example struct {
