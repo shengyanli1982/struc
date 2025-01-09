@@ -6,16 +6,16 @@ import (
 	"testing"
 )
 
-var refVal = reflect.ValueOf(reference)
+var testRefValue = reflect.ValueOf(testExample)
 
 func TestFieldsParse(t *testing.T) {
-	if _, err := parseFields(refVal); err != nil {
+	if _, err := parseFields(testRefValue); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestFieldsString(t *testing.T) {
-	fields, _ := parseFields(refVal)
+	fields, _ := parseFields(testRefValue)
 	fields.String()
 }
 

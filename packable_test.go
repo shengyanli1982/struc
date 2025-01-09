@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-var packableReference = []byte{
+var testPackableBytes = []byte{
 	1, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 5, 0, 6, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 8,
 	9, 10, 11, 12, 13, 14, 15, 16,
 	0, 17, 0, 18, 0, 19, 0, 20, 0, 21, 0, 22, 0, 23, 0, 24,
@@ -59,9 +59,9 @@ func TestPackable(t *testing.T) {
 	if err := Pack(&buf, u16a[:]); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(buf.Bytes(), packableReference) {
+	if !bytes.Equal(buf.Bytes(), testPackableBytes) {
 		fmt.Println(buf.Bytes())
-		fmt.Println(packableReference)
+		fmt.Println(testPackableBytes)
 		t.Fatal("Packable Pack() did not match reference.")
 	}
 	// unpack tests

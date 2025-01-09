@@ -52,7 +52,7 @@ func parseStrucTag(tag reflect.StructTag) *strucTag {
 	return t
 }
 
-var typeLenRe = regexp.MustCompile(`^\[(\d*)\]`)
+var typeArrayLenRegex = regexp.MustCompile(`^\[(\d*)\]`)
 
 func parseField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
 	tag = parseStrucTag(f.Tag)
@@ -85,12 +85,12 @@ func parseField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
 		return
 	}
 	var defTypeOk bool
-	fd.defType, defTypeOk = reflectTypeMap[fd.kind]
+	fd.defType, defTypeOk = typeKindToType[fd.kind]
 	// find a type in the struct tag
-	pureType := typeLenRe.ReplaceAllLiteralString(tag.Type, "")
-	if fd.Type, ok = typeLookup[pureType]; ok {
+	pureType := typeArrayLenRegex.ReplaceAllLiteralString(tag.Type, "")
+	if fd.Type, ok = typeStrToType[pureType]; ok {
 		fd.Len = 1
-		match := typeLenRe.FindAllStringSubmatch(tag.Type, -1)
+		match := typeArrayLenRegex.FindAllStringSubmatch(tag.Type, -1)
 		if len(match) > 0 && len(match[0]) > 1 {
 			fd.Slice = true
 			first := match[0][1]
@@ -113,7 +113,7 @@ func parseField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
 		if defTypeOk {
 			fd.Type = fd.defType
 		} else {
-			err = errors.New(fmt.Sprintf("struc: Could not resolve field '%v' type '%v'.", f.Name, f.Type))
+			err = fmt.Errorf("struc: Could not resolve field '%v' type '%v'.", f.Name, f.Type)
 		}
 	}
 	return
@@ -184,47 +184,61 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 	return fields, nil
 }
 
-var fieldCache = make(map[reflect.Type]Fields)
-var fieldCacheLock sync.RWMutex
-var parseLock sync.Mutex
+// Cache for parsed fields to improve performance
+// 缓存已解析的字段以提高性能
+var (
+	// structFieldCache stores parsed fields for each struct type
+	// structFieldCache 存储每个结构体类型的已解析字段
+	structFieldCache = sync.Map{}
 
+	// parseLock prevents concurrent parsing of the same type
+	// parseLock 防止同一类型的并发解析
+	parseLock sync.Mutex
+)
+
+// fieldCacheLookup looks up cached fields for a type
+// fieldCacheLookup 查找类型的缓存字段
 func fieldCacheLookup(t reflect.Type) Fields {
-	fieldCacheLock.RLock()
-	defer fieldCacheLock.RUnlock()
-	if cached, ok := fieldCache[t]; ok {
-		return cached
+	if cached, ok := structFieldCache.Load(t); ok {
+		return cached.(Fields)
 	}
 	return nil
 }
 
+// parseFields parses struct fields with caching
+// parseFields 解析结构体字段并缓存
 func parseFields(v reflect.Value) (Fields, error) {
+	// Dereference pointers
+	// 解引用指针
 	for v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
 	t := v.Type()
 
-	// fast path: hopefully the field parsing is already cached
+	// Fast path: check cache first
+	// 快速路径：首先检查缓存
 	if cached := fieldCacheLookup(t); cached != nil {
 		return cached, nil
 	}
 
-	// hold a global lock so multiple goroutines can't parse (the same) fields at once
+	// Slow path: parse fields with lock
+	// 慢速路径：加锁解析字段
 	parseLock.Lock()
 	defer parseLock.Unlock()
 
-	// check cache a second time, in case parseLock was just released by
-	// another thread who filled the cache for us
+	// Double-check cache after acquiring lock
+	// 获取锁后再次检查缓存
 	if cached := fieldCacheLookup(t); cached != nil {
 		return cached, nil
 	}
 
-	// no luck, time to parse and fill the cache ourselves
+	// Parse fields and update cache
+	// 解析字段并更新缓存
 	fields, err := parseFieldsLocked(v)
 	if err != nil {
 		return nil, err
 	}
-	fieldCacheLock.Lock()
-	fieldCache[t] = fields
-	fieldCacheLock.Unlock()
+
+	structFieldCache.Store(t, fields)
 	return fields, nil
 }

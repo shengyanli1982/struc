@@ -1,4 +1,4 @@
-English | [中文](./README_CN.md)
+[English](./README.md) | 中文
 
 # struc v2
 
@@ -6,26 +6,26 @@ English | [中文](./README_CN.md)
 [![GoDoc](https://godoc.org/github.com/lunixbochs/struc?status.svg)](https://godoc.org/github.com/lunixbochs/struc)
 [![Go Report Card](https://goreportcard.com/badge/github.com/lunixbochs/struc)](https://goreportcard.com/report/github.com/lunixbochs/struc)
 
-Struc v2 is a Go library for packing and unpacking binary data using C-style structure definitions. It provides a more convenient alternative to `encoding/binary`, eliminating the need for extensive boilerplate code.
+Struc v2 是一个 Go 语言库，用于使用 C 风格的结构体定义来打包和解包二进制数据。它为 `encoding/binary` 提供了一个更便捷的替代方案，无需编写大量的样板代码。
 
-[Compare struc with encoding/binary](https://bochs.info/p/cxvm9)
+[查看 struc 与 encoding/binary 的对比](https://bochs.info/p/cxvm9)
 
-## Features
+## 特性
 
--   Simple struct tag-based configuration
--   Support for various numeric types and arrays
--   Automatic size tracking between fields
--   Configurable endianness
--   High performance with reflection caching
--   Comprehensive test coverage
+-   简单的结构体标签配置
+-   支持多种数值类型和数组
+-   字段间自动大小追踪
+-   可配置的字节序
+-   通过反射缓存实现高性能
+-   全面的测试覆盖
 
-## Installation
+## 安装
 
 ```bash
 go get github.com/shengyanli1982/struc/v2
 ```
 
-## Quick Start
+## 快速开始
 
 ```go
 package main
@@ -36,16 +36,16 @@ import (
 )
 
 type Example struct {
-    Length int    `struc:"int32,sizeof=Data"`  // Automatically tracks Data length
-    Data   string                              // Will be packed as bytes
-    Values []int  `struc:"[]int16,little"`     // Slice of little-endian int16
-    Fixed  [4]int `struc:"[4]int32"`          // Fixed-size array of int32
+    Length int    `struc:"int32,sizeof=Data"`  // 自动追踪 Data 长度
+    Data   string                              // 将被打包为字节
+    Values []int  `struc:"[]int16,little"`     // 小端序 int16 切片
+    Fixed  [4]int `struc:"[4]int32"`          // 固定大小的 int32 数组
 }
 
 func main() {
     var buf bytes.Buffer
 
-    // Pack structure
+    // 打包结构体
     data := &Example{
         Data:   "hello",
         Values: []int{1, 2, 3},
@@ -55,7 +55,7 @@ func main() {
         panic(err)
     }
 
-    // Unpack structure
+    // 解包结构体
     result := &Example{}
     if err := struc.Unpack(&buf, result); err != nil {
         panic(err)
@@ -63,53 +63,53 @@ func main() {
 }
 ```
 
-## Struct Tag Format
+## 结构体标签格式
 
-The struct tag format is: `` `struc:"type,endian,sizeof=Field"` ``
+结构体标签格式为：`` `struc:"type,endian,sizeof=Field"` ``
 
-Components:
+组成部分：
 
--   `type`: The binary type (e.g., `int32`, `[]int16`)
--   `endian`: Byte order (`big` or `little`, defaults to `big`)
--   `sizeof=Field`: Links this numeric field to another field's length
+-   `type`：二进制类型（如 `int32`、`[]int16`）
+-   `endian`：字节序（`big` 或 `little`，默认为 `big`）
+-   `sizeof=Field`：将该数值字段链接到另一个字段的长度
 
-Example:
+示例：
 
 ```go
 type Message struct {
     Size    int      `struc:"int32,sizeof=Payload"`
     Payload []byte
-    Flags   uint16   `struc:"little"`  // Little-endian uint16
-    Reserved [4]byte `struc:"[4]pad"`  // 4 bytes of padding
+    Flags   uint16   `struc:"little"`  // 小端序 uint16
+    Reserved [4]byte `struc:"[4]pad"`  // 4 字节填充
 }
 ```
 
-## Supported Types
+## 支持的类型
 
-Basic Types:
+基本类型：
 
--   `bool` - 1 byte
--   `byte`/`uint8`/`int8` - 1 byte
--   `uint16`/`int16` - 2 bytes
--   `uint32`/`int32` - 4 bytes
--   `uint64`/`int64` - 8 bytes
--   `float32` - 4 bytes
--   `float64` - 8 bytes
--   `string` - Length-prefixed bytes
--   `[]byte` - Raw bytes
+-   `bool` - 1 字节
+-   `byte`/`uint8`/`int8` - 1 字节
+-   `uint16`/`int16` - 2 字节
+-   `uint32`/`int32` - 4 字节
+-   `uint64`/`int64` - 8 字节
+-   `float32` - 4 字节
+-   `float64` - 8 字节
+-   `string` - 长度前缀的字节序列
+-   `[]byte` - 原始字节
 
-Array/Slice Types:
+数组/切片类型：
 
--   Fixed-size arrays: `[N]type`
--   Dynamic slices: `[]type` (requires `sizeof` field)
+-   固定大小数组：`[N]type`
+-   动态切片：`[]type`（需要 `sizeof` 字段）
 
-Special Types:
+特殊类型：
 
--   `pad` - Null bytes for alignment/padding
+-   `pad` - 用于对齐/填充的空字节
 
-## Performance
+## 性能
 
-Benchmark results comparing `struc`, standard library `encoding/binary`, and manual encoding:
+与标准库 `encoding/binary` 和手动编码的基准测试对比：
 
 ```bash
 goos: windows
@@ -130,13 +130,13 @@ BenchmarkFullEncode-12            668888              1758 ns/op             472
 BenchmarkFullDecode-12            633552              1862 ns/op             312 B/op         26 allocs/
 ```
 
-## Notes
+## 注意事项
 
--   Private fields are ignored during packing/unpacking
--   Bare slice types must have a corresponding `sizeof` field
--   All numeric types support both big and little endian encoding
--   The library caches reflection data for better performance
+-   私有字段在打包/解包时会被忽略
+-   裸切片类型必须有对应的 `sizeof` 字段
+-   所有数值类型都支持大端序和小端序编码
+-   库会缓存反射数据以提高性能
 
-## License
+## 许可证
 
-MIT License - see LICENSE file for details
+MIT 许可证 - 详见 LICENSE 文件
