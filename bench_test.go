@@ -201,3 +201,21 @@ func BenchmarkFullDecode(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkFieldPool(b *testing.B) {
+	type TestStruct struct {
+		A int     `struc:"int32"`
+		B string  `struc:"[16]byte"`
+		C float64 `struc:"float64"`
+	}
+
+	data := &TestStruct{A: 1, B: "test", C: 3.14}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			var buf bytes.Buffer
+			_ = Pack(&buf, data)
+		}
+	})
+}

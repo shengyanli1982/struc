@@ -78,23 +78,25 @@ func parseStrucTag(tag reflect.StructTag) *strucTag {
 // Regular expression for matching array length
 var typeArrayLenRegex = regexp.MustCompile(`^\[(\d*)\]`)
 
-// parseField 解析单个结构体字段，返回字段描述符和标签信息
-// parseField parses a single struct field, returns field descriptor and tag info
-func parseField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
+// parseStructField 解析单个结构体字段，返回字段描述符和标签信息
+// parseStructField parses a single struct field, returns field descriptor and tag info
+func parseStructField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
 	// 解析字段标签
 	// Parse field tag
 	tag = parseStrucTag(f.Tag)
 	var ok bool
 
+	// 从对象池获取 Field 对象
+	// Get Field object from pool
+	fd = getField()
+
 	// 初始化字段描述符
 	// Initialize field descriptor
-	fd = &Field{
-		Name:  f.Name,
-		Len:   1,
-		Order: tag.Order,
-		Slice: false,
-		kind:  f.Type.Kind(),
-	}
+	fd.Name = f.Name
+	fd.Len = 1
+	fd.Order = tag.Order
+	fd.Slice = false
+	fd.kind = f.Type.Kind()
 
 	// 处理特殊类型：数组、切片和指针
 	// Handle special types: arrays, slices and pointers
@@ -157,7 +159,9 @@ func parseField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
 		if defTypeOk {
 			fd.Type = fd.defType
 		} else {
+			putField(fd) // 发生错误时回收 Field 对象
 			err = fmt.Errorf("struc: Could not resolve field '%v' type '%v'.", f.Name, f.Type)
+			fd = nil
 		}
 	}
 	return
@@ -193,14 +197,23 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 		field := t.Field(i)
 		// 解析字段和标签
 		// Parse field and tag
-		f, tag, err := parseField(field)
+		f, tag, err := parseStructField(field)
 		if tag.Skip {
 			continue // 跳过标记为 skip 的字段 / Skip fields marked with skip
 		}
 		if err != nil {
+			// 清理已创建的字段
+			for j := 0; j < i; j++ {
+				if fields[j] != nil {
+					putField(fields[j])
+				}
+			}
 			return nil, err
 		}
 		if !v.Field(i).CanSet() {
+			if f != nil {
+				putField(f)
+			}
 			continue // 跳过不可设置的字段 / Skip fields that cannot be set
 		}
 
@@ -285,48 +298,36 @@ func fieldCacheLookup(t reflect.Type) Fields {
 // This is the main entry point for parsing struct fields, implementing a caching mechanism for better performance
 func parseFields(v reflect.Value) (Fields, error) {
 	// 解引用指针，直到获取到非指针类型
-	// 这个步骤确保我们总是处理实际的值类型
-	//
 	// Dereference pointers until we get a non-pointer type
-	// This step ensures we always work with actual value types
 	for v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
 	t := v.Type()
 
 	// 快速路径：首先检查缓存
-	// 如果找到缓存的字段信息，直接返回
-	//
 	// Fast path: check cache first
-	// If cached fields info is found, return it directly
 	if cached := fieldCacheLookup(t); cached != nil {
 		return cached, nil
 	}
 
 	// 慢速路径：加锁解析字段
-	// 这里使用互斥锁确保并发安全
-	//
 	// Slow path: parse fields with lock
-	// Using mutex to ensure thread safety
 	parseLock.Lock()
 	defer parseLock.Unlock()
 
-	// 获取锁后再次检查缓存
-	// 这是一个双重检查锁定模式，避免重复解析
-	//
+	// 双重检查缓存
 	// Double-check cache after acquiring lock
-	// This is a double-checked locking pattern to avoid redundant parsing
 	if cached := fieldCacheLookup(t); cached != nil {
 		return cached, nil
 	}
 
 	// 解析字段并更新缓存
-	// 这是实际的解析工作，完成后会存储到缓存中
-	//
 	// Parse fields and update cache
-	// This is where the actual parsing happens, results will be stored in cache
 	fields, err := parseFieldsLocked(v)
 	if err != nil {
+		if fields != nil {
+			cleanupFields(fields) // 清理已创建的字段
+		}
 		return nil, err
 	}
 
@@ -334,4 +335,13 @@ func parseFields(v reflect.Value) (Fields, error) {
 	// Store parsing results in cache
 	structFieldCache.Store(t, fields)
 	return fields, nil
+}
+
+// 在错误处理和结构体释放时添加清理代码
+func cleanupFields(fields Fields) {
+	for _, f := range fields {
+		if f != nil {
+			putField(f)
+		}
+	}
 }

@@ -50,9 +50,9 @@ func init() {
 	_ = emptyOptions.Validate()
 }
 
-// prep prepares a value for packing or unpacking.
-// prep 准备一个值用于打包或解包。
-func prep(data interface{}) (reflect.Value, Packer, error) {
+// prepareValueForPacking prepares a value for packing or unpacking.
+// prepareValueForPacking 准备一个值用于打包或解包。
+func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 	if data == nil {
 		return reflect.Value{}, nil, fmt.Errorf("cannot pack/unpack nil data")
 	}
@@ -110,7 +110,7 @@ func PackWithOptions(w io.Writer, data interface{}, options *Options) error {
 		return fmt.Errorf("invalid options: %w", err)
 	}
 
-	val, packer, err := prep(data)
+	val, packer, err := prepareValueForPacking(data)
 	if err != nil {
 		return fmt.Errorf("preparation failed: %w", err)
 	}
@@ -153,7 +153,7 @@ func UnpackWithOptions(r io.Reader, data interface{}, options *Options) error {
 		return fmt.Errorf("invalid options: %w", err)
 	}
 
-	val, packer, err := prep(data)
+	val, packer, err := prepareValueForPacking(data)
 	if err != nil {
 		return fmt.Errorf("preparation failed: %w", err)
 	}
@@ -177,7 +177,7 @@ func SizeofWithOptions(data interface{}, options *Options) (int, error) {
 		return 0, fmt.Errorf("invalid options: %w", err)
 	}
 
-	val, packer, err := prep(data)
+	val, packer, err := prepareValueForPacking(data)
 	if err != nil {
 		return 0, fmt.Errorf("preparation failed: %w", err)
 	}
