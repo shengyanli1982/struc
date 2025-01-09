@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"sync"
 )
 
 // Options defines the configuration options for packing and unpacking.
@@ -25,12 +24,6 @@ type Options struct {
 	// Order 指定字节序（小端或大端）。
 	Order binary.ByteOrder
 }
-
-// cache for parsed fields to improve performance
-// 缓存已解析的字段以提高性能
-var (
-	fieldsCache sync.Map // map[reflect.Type]Packer
-)
 
 // Validate checks if the options are valid.
 // Validate 检查选项是否有效。
@@ -77,12 +70,6 @@ func prep(data interface{}) (reflect.Value, Packer, error) {
 		}
 	}
 
-	// Check if we have a cached packer for this type
-	// 检查是否有此类型的缓存打包器
-	if packer, ok := fieldsCache.Load(value.Type()); ok {
-		return value, packer.(Packer), nil
-	}
-
 	var packer Packer
 	var err error
 
@@ -92,9 +79,6 @@ func prep(data interface{}) (reflect.Value, Packer, error) {
 			return reflect.Value{}, nil, fmt.Errorf("failed to parse fields: %w", err)
 		} else {
 			packer = fields
-			// Cache the parsed fields for future use
-			// 缓存解析的字段以供将来使用
-			fieldsCache.Store(value.Type(), fields)
 		}
 	default:
 		if !value.IsValid() {
