@@ -40,14 +40,14 @@ func (o *Options) Validate() error {
 	return nil
 }
 
-// Default options instance to avoid repeated allocations
-// 默认选项实例，避免重复分配
-var emptyOptions = &Options{}
+// defaultPackingOptions is the default instance to avoid repeated allocations
+// defaultPackingOptions 是默认的实例，避免重复分配
+var defaultPackingOptions = &Options{}
 
 func init() {
 	// Fill default values to avoid data race
 	// 填充默认值以避免数据竞争
-	_ = emptyOptions.Validate()
+	_ = defaultPackingOptions.Validate()
 }
 
 // prepareValueForPacking prepares a value for packing or unpacking.
@@ -104,7 +104,7 @@ func Pack(w io.Writer, data interface{}) error {
 // PackWithOptions 使用指定的选项将数据打包到写入器中。
 func PackWithOptions(w io.Writer, data interface{}, options *Options) error {
 	if options == nil {
-		options = emptyOptions
+		options = defaultPackingOptions
 	}
 	if err := options.Validate(); err != nil {
 		return fmt.Errorf("invalid options: %w", err)
@@ -147,7 +147,7 @@ func Unpack(r io.Reader, data interface{}) error {
 // UnpackWithOptions 使用指定的选项从读取器中解包数据。
 func UnpackWithOptions(r io.Reader, data interface{}, options *Options) error {
 	if options == nil {
-		options = emptyOptions
+		options = defaultPackingOptions
 	}
 	if err := options.Validate(); err != nil {
 		return fmt.Errorf("invalid options: %w", err)
@@ -171,7 +171,25 @@ func Sizeof(data interface{}) (int, error) {
 // SizeofWithOptions 使用指定的选项返回打包数据的大小。
 func SizeofWithOptions(data interface{}, options *Options) (int, error) {
 	if options == nil {
-		options = emptyOptions
+		options = defaultPackingOptions
+	}
+	if err := options.Validate(); err != nil {
+		return 0, fmt.Errorf("invalid options: %w", err)
+	}
+
+	val, packer, err := prepareValueForPacking(data)
+	if err != nil {
+		return 0, fmt.Errorf("preparation failed: %w", err)
+	}
+
+	return packer.Sizeof(val, options), nil
+}
+
+// calculatePackedSizeWithOptions returns the size of the packed data using the specified options.
+// calculatePackedSizeWithOptions 使用指定的选项返回打包数据的大小。
+func calculatePackedSizeWithOptions(data interface{}, options *Options) (int, error) {
+	if options == nil {
+		options = defaultPackingOptions
 	}
 	if err := options.Validate(); err != nil {
 		return 0, fmt.Errorf("invalid options: %w", err)

@@ -74,9 +74,9 @@ func parseStrucTag(tag reflect.StructTag) *strucTag {
 	return t
 }
 
-// 用于匹配数组长度的正则表达式
-// Regular expression for matching array length
-var typeArrayLenRegex = regexp.MustCompile(`^\[(\d*)\]`)
+// arrayLengthParseRegex 用于匹配数组长度的正则表达式
+// arrayLengthParseRegex is a regular expression for matching array length
+var arrayLengthParseRegex = regexp.MustCompile(`^\[(\d*)\]`)
 
 // parseStructField 解析单个结构体字段，返回字段描述符和标签信息
 // parseStructField parses a single struct field, returns field descriptor and tag info
@@ -86,32 +86,32 @@ func parseStructField(f reflect.StructField) (fd *Field, tag *strucTag, err erro
 	tag = parseStrucTag(f.Tag)
 	var ok bool
 
-	// 从对象池获取 Field 对象
-	// Get Field object from pool
-	fd = getField()
+	// 创建新的 Field 对象
+	// Create new Field object
+	fd = &Field{}
 
 	// 初始化字段描述符
 	// Initialize field descriptor
 	fd.Name = f.Name
-	fd.Len = 1
-	fd.Order = tag.Order
-	fd.Slice = false
+	fd.Length = 1
+	fd.ByteOrder = tag.Order
+	fd.IsSlice = false
 	fd.kind = f.Type.Kind()
 
 	// 处理特殊类型：数组、切片和指针
 	// Handle special types: arrays, slices and pointers
 	switch fd.kind {
 	case reflect.Array:
-		fd.Slice = true
-		fd.Array = true
-		fd.Len = f.Type.Len()
+		fd.IsSlice = true
+		fd.IsArray = true
+		fd.Length = f.Type.Len()
 		fd.kind = f.Type.Elem().Kind()
 	case reflect.Slice:
-		fd.Slice = true
-		fd.Len = -1
+		fd.IsSlice = true
+		fd.Length = -1
 		fd.kind = f.Type.Elem().Kind()
 	case reflect.Ptr:
-		fd.Ptr = true
+		fd.IsPointer = true
 		fd.kind = f.Type.Elem().Kind()
 	}
 
@@ -130,19 +130,19 @@ func parseStructField(f reflect.StructField) (fd *Field, tag *strucTag, err erro
 
 	// 从结构体标签中查找类型
 	// Find type in struct tag
-	pureType := typeArrayLenRegex.ReplaceAllLiteralString(tag.Type, "")
+	pureType := arrayLengthParseRegex.ReplaceAllLiteralString(tag.Type, "")
 	if fd.Type, ok = typeStrToType[pureType]; ok {
-		fd.Len = 1
+		fd.Length = 1
 		// 解析数组长度
 		// Parse array length
-		match := typeArrayLenRegex.FindAllStringSubmatch(tag.Type, -1)
+		match := arrayLengthParseRegex.FindAllStringSubmatch(tag.Type, -1)
 		if len(match) > 0 && len(match[0]) > 1 {
-			fd.Slice = true
+			fd.IsSlice = true
 			first := match[0][1]
 			if first == "" {
-				fd.Len = -1 // 动态长度切片 / Dynamic length slice
+				fd.Length = -1 // 动态长度切片 / Dynamic length slice
 			} else {
-				fd.Len, err = strconv.Atoi(first)
+				fd.Length, err = strconv.Atoi(first)
 			}
 		}
 		return
@@ -159,7 +159,6 @@ func parseStructField(f reflect.StructField) (fd *Field, tag *strucTag, err erro
 		if defTypeOk {
 			fd.Type = fd.defType
 		} else {
-			putField(fd) // 发生错误时回收 Field 对象
 			err = fmt.Errorf("struc: Could not resolve field '%v' type '%v'.", f.Name, f.Type)
 			fd = nil
 		}
@@ -202,18 +201,9 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 			continue // 跳过标记为 skip 的字段 / Skip fields marked with skip
 		}
 		if err != nil {
-			// 清理已创建的字段
-			for j := 0; j < i; j++ {
-				if fields[j] != nil {
-					putField(fields[j])
-				}
-			}
 			return nil, err
 		}
 		if !v.Field(i).CanSet() {
-			if f != nil {
-				putField(f)
-			}
 			continue // 跳过不可设置的字段 / Skip fields that cannot be set
 		}
 
@@ -245,7 +235,7 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 
 		// 验证切片长度
 		// Validate slice length
-		if f.Len == -1 && f.Sizefrom == nil {
+		if f.Length == -1 && f.Sizefrom == nil {
 			return nil, fmt.Errorf("struc: field `%s` is a slice with no length or sizeof field", field.Name)
 		}
 
@@ -253,13 +243,13 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 		// Recursively handle nested structs
 		if f.Type == Struct {
 			typ := field.Type
-			if f.Ptr {
+			if f.IsPointer {
 				typ = typ.Elem()
 			}
-			if f.Slice {
+			if f.IsSlice {
 				typ = typ.Elem()
 			}
-			f.Fields, err = parseFieldsLocked(reflect.New(typ))
+			f.NestFields, err = parseFieldsLocked(reflect.New(typ))
 			if err != nil {
 				return nil, err
 			}
@@ -273,29 +263,26 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 // Cache for parsed fields to improve performance
 // 缓存已解析的字段以提高性能
 var (
-	// structFieldCache 存储每个结构体类型的已解析字段
-	// structFieldCache stores parsed fields for each struct type
-	structFieldCache = sync.Map{}
+	// parsedStructFieldCache 存储每个结构体类型的已解析字段
+	// parsedStructFieldCache stores parsed fields for each struct type
+	parsedStructFieldCache = sync.Map{}
 
-	// parseLock 防止同一类型的并发解析
-	// parseLock prevents concurrent parsing of the same type
-	parseLock sync.Mutex
+	// structParsingMutex 防止同一类型的并发解析
+	// structParsingMutex prevents concurrent parsing of the same type
+	structParsingMutex sync.Mutex
 )
 
 // fieldCacheLookup 查找类型的缓存字段
 // fieldCacheLookup looks up cached fields for a type
 func fieldCacheLookup(t reflect.Type) Fields {
-	if cached, ok := structFieldCache.Load(t); ok {
+	if cached, ok := parsedStructFieldCache.Load(t); ok {
 		return cached.(Fields)
 	}
 	return nil
 }
 
 // parseFields 解析结构体字段并缓存结果
-// 这是解析结构体字段的主入口函数，它实现了缓存机制以提高性能
-//
 // parseFields parses struct fields and caches the result
-// This is the main entry point for parsing struct fields, implementing a caching mechanism for better performance
 func parseFields(v reflect.Value) (Fields, error) {
 	// 解引用指针，直到获取到非指针类型
 	// Dereference pointers until we get a non-pointer type
@@ -312,8 +299,8 @@ func parseFields(v reflect.Value) (Fields, error) {
 
 	// 慢速路径：加锁解析字段
 	// Slow path: parse fields with lock
-	parseLock.Lock()
-	defer parseLock.Unlock()
+	structParsingMutex.Lock()
+	defer structParsingMutex.Unlock()
 
 	// 双重检查缓存
 	// Double-check cache after acquiring lock
@@ -321,27 +308,18 @@ func parseFields(v reflect.Value) (Fields, error) {
 		return cached, nil
 	}
 
-	// 解析字段并更新缓存
-	// Parse fields and update cache
+	// 解析字段失败时返回错误
+	// Return error if field parsing fails
 	fields, err := parseFieldsLocked(v)
 	if err != nil {
-		if fields != nil {
-			cleanupFields(fields) // 清理已创建的字段
-		}
 		return nil, err
 	}
 
 	// 将解析结果存储到缓存中
 	// Store parsing results in cache
-	structFieldCache.Store(t, fields)
+	parsedStructFieldCache.Store(t, fields)
 	return fields, nil
 }
 
-// 在错误处理和结构体释放时添加清理代码
-func cleanupFields(fields Fields) {
-	for _, f := range fields {
-		if f != nil {
-			putField(f)
-		}
-	}
-}
+// String returns a string representation of the field.
+// String 返回字段的字符串表示。

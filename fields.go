@@ -17,7 +17,7 @@ type Fields []*Field
 func (f Fields) SetByteOrder(order binary.ByteOrder) {
 	for _, field := range f {
 		if field != nil {
-			field.Order = order
+			field.ByteOrder = order
 		}
 	}
 }
@@ -93,14 +93,14 @@ func (f Fields) Pack(buf []byte, val reflect.Value, options *Options) (int, erro
 		// 获取字段值
 		// Get field value
 		v := val.Field(i)
-		length := field.Len
+		length := field.Length
 
 		// 处理动态长度字段
 		// Handle dynamic length fields
 		if field.Sizefrom != nil {
 			length = f.sizefrom(val, field.Sizefrom)
 		}
-		if length <= 0 && field.Slice {
+		if length <= 0 && field.IsSlice {
 			length = v.Len()
 		}
 
@@ -157,7 +157,7 @@ func (f Fields) Unpack(r io.Reader, val reflect.Value, options *Options) error {
 		// 获取字段值和长度
 		// Get field value and length
 		v := val.Field(i)
-		length := field.Len
+		length := field.Length
 		if field.Sizefrom != nil {
 			length = f.sizefrom(val, field.Sizefrom)
 		}
@@ -171,11 +171,11 @@ func (f Fields) Unpack(r io.Reader, val reflect.Value, options *Options) error {
 		// 处理结构体类型
 		// Handle struct types
 		if field.Type == Struct {
-			if field.Slice {
+			if field.IsSlice {
 				// 处理结构体切片
 				// Handle struct slices
 				vals := v
-				if !field.Array {
+				if !field.IsArray {
 					vals = reflect.MakeSlice(v.Type(), length, length)
 				}
 				for i := 0; i < length; i++ {
@@ -188,7 +188,7 @@ func (f Fields) Unpack(r io.Reader, val reflect.Value, options *Options) error {
 						return err
 					}
 				}
-				if !field.Array {
+				if !field.IsArray {
 					v.Set(vals)
 				}
 			} else {
