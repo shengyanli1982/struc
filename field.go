@@ -32,7 +32,7 @@ type Field struct {
 // bufferPool 用于减少打包/解包时的内存分配
 var bufferPool = sync.Pool{
 	New: func() interface{} {
-		return new(bytes.Buffer)
+		return bytes.NewBuffer(make([]byte, 0, 1024)) // 预分配 1KB 的初始容量
 	},
 }
 
@@ -43,21 +43,27 @@ func (f *Field) String() string {
 		return fmt.Sprintf("{type: Pad, len: %d}", f.Len)
 	}
 
-	var parts []string
-	parts = append(parts, fmt.Sprintf("type: %s", f.Type))
+	b := bufferPool.Get().(*bytes.Buffer)
+	b.Reset()
+	defer bufferPool.Put(b)
+
+	b.WriteString("{")
+	b.WriteString(fmt.Sprintf("type: %s", f.Type))
+
 	if f.Order != nil {
-		parts = append(parts, fmt.Sprintf("order: %v", f.Order))
+		b.WriteString(fmt.Sprintf(", order: %v", f.Order))
 	}
 	if f.Sizefrom != nil {
-		parts = append(parts, fmt.Sprintf("sizefrom: %v", f.Sizefrom))
+		b.WriteString(fmt.Sprintf(", sizefrom: %v", f.Sizefrom))
 	} else if f.Len > 0 {
-		parts = append(parts, fmt.Sprintf("len: %d", f.Len))
+		b.WriteString(fmt.Sprintf(", len: %d", f.Len))
 	}
 	if f.Sizeof != nil {
-		parts = append(parts, fmt.Sprintf("sizeof: %v", f.Sizeof))
+		b.WriteString(fmt.Sprintf(", sizeof: %v", f.Sizeof))
 	}
+	b.WriteString("}")
 
-	return "{" + joinStrings(parts, ", ") + "}"
+	return b.String()
 }
 
 // Size calculates the size of the field in bytes.
@@ -68,50 +74,66 @@ func (f *Field) Size(val reflect.Value, options *Options) int {
 
 	switch typ {
 	case Struct:
-		if f.Slice {
-			length := val.Len()
-			for i := 0; i < length; i++ {
-				size += f.Fields.Sizeof(val.Index(i), options)
-			}
-		} else {
-			size = f.Fields.Sizeof(val, options)
-		}
+		size = f.calculateStructSize(val, options)
 	case Pad:
 		size = f.Len
 	case CustomType:
-		if c, ok := val.Addr().Interface().(Custom); ok {
-			size = c.Size(options)
-		}
+		size = f.calculateCustomSize(val, options)
 	default:
-		elemSize := typ.Size()
-		if f.Slice || f.kind == reflect.String {
-			length := val.Len()
-			if f.Len > 1 {
-				length = f.Len
-			}
-			size = length * elemSize
-		} else {
-			size = elemSize
-		}
+		size = f.calculateBasicSize(val, typ, options)
 	}
 
-	// Apply byte alignment if specified
+	return f.alignSize(size, options)
+}
+
+// calculateStructSize calculates size for struct types
+func (f *Field) calculateStructSize(val reflect.Value, options *Options) int {
+	if f.Slice {
+		length := val.Len()
+		size := 0
+		for i := 0; i < length; i++ {
+			size += f.Fields.Sizeof(val.Index(i), options)
+		}
+		return size
+	}
+	return f.Fields.Sizeof(val, options)
+}
+
+// calculateCustomSize calculates size for custom types
+func (f *Field) calculateCustomSize(val reflect.Value, options *Options) int {
+	if c, ok := val.Addr().Interface().(Custom); ok {
+		return c.Size(options)
+	}
+	return 0
+}
+
+// calculateBasicSize calculates size for basic types
+func (f *Field) calculateBasicSize(val reflect.Value, typ Type, options *Options) int {
+	elemSize := typ.Size()
+	if f.Slice || f.kind == reflect.String {
+		length := val.Len()
+		if f.Len > 1 {
+			length = f.Len
+		}
+		return length * elemSize
+	}
+	return elemSize
+}
+
+// alignSize aligns the size according to ByteAlign option
+func (f *Field) alignSize(size int, options *Options) int {
 	if align := options.ByteAlign; align > 0 {
 		if remainder := size % align; remainder != 0 {
 			size += align - remainder
 		}
 	}
-
 	return size
 }
 
 // packVal packs a single value into the buffer.
 // packVal 将单个值打包到缓冲区中。
 func (f *Field) packVal(buf []byte, val reflect.Value, length int, options *Options) (size int, err error) {
-	order := f.Order
-	if options.Order != nil {
-		order = options.Order
-	}
+	order := f.getByteOrder(options)
 	if f.Ptr {
 		val = val.Elem()
 	}
@@ -121,36 +143,269 @@ func (f *Field) packVal(buf []byte, val reflect.Value, length int, options *Opti
 	case Struct:
 		return f.Fields.Pack(buf, val, options)
 	case Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
-		size = typ.Size()
-		n := f.getIntegerValue(val)
-		if err := f.writeInteger(buf, n, typ, order); err != nil {
-			return 0, fmt.Errorf("failed to write integer: %w", err)
-		}
+		return f.packInteger(buf, val, typ, order)
 	case Float32, Float64:
-		size = typ.Size()
-		n := val.Float()
-		if err := f.writeFloat(buf, n, typ, order); err != nil {
-			return 0, fmt.Errorf("failed to write float: %w", err)
-		}
+		return f.packFloat(buf, val, typ, order)
 	case String:
-		var data []byte
-		switch f.kind {
-		case reflect.String:
-			data = []byte(val.String())
-		default:
-			data = val.Bytes()
-		}
-		size = len(data)
-		copy(buf, data)
+		return f.packString(buf, val)
 	case CustomType:
-		if c, ok := val.Addr().Interface().(Custom); ok {
-			return c.Pack(buf, options)
-		}
-		return 0, fmt.Errorf("failed to pack custom type: %v", val.Type())
+		return f.packCustom(buf, val, options)
 	default:
 		return 0, fmt.Errorf("unsupported type for packing: %v", typ)
 	}
+}
+
+// getByteOrder returns the byte order to use
+func (f *Field) getByteOrder(options *Options) binary.ByteOrder {
+	if options.Order != nil {
+		return options.Order
+	}
+	return f.Order
+}
+
+// packInteger packs an integer value
+func (f *Field) packInteger(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) (int, error) {
+	n := f.getIntegerValue(val)
+	size := typ.Size()
+	if err := f.writeInteger(buf, n, typ, order); err != nil {
+		return 0, fmt.Errorf("failed to write integer: %w", err)
+	}
 	return size, nil
+}
+
+// packFloat packs a float value
+func (f *Field) packFloat(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) (int, error) {
+	n := val.Float()
+	size := typ.Size()
+	if err := f.writeFloat(buf, n, typ, order); err != nil {
+		return 0, fmt.Errorf("failed to write float: %w", err)
+	}
+	return size, nil
+}
+
+// packString packs a string value
+func (f *Field) packString(buf []byte, val reflect.Value) (int, error) {
+	var data []byte
+	switch f.kind {
+	case reflect.String:
+		data = []byte(val.String())
+	default:
+		data = val.Bytes()
+	}
+	size := len(data)
+	copy(buf, data)
+	return size, nil
+}
+
+// packCustom packs a custom type
+func (f *Field) packCustom(buf []byte, val reflect.Value, options *Options) (int, error) {
+	if c, ok := val.Addr().Interface().(Custom); ok {
+		return c.Pack(buf, options)
+	}
+	return 0, fmt.Errorf("failed to pack custom type: %v", val.Type())
+}
+
+// Pack packs the field value into the buffer.
+// Pack 将字段值打包到缓冲区中。
+func (f *Field) Pack(buf []byte, val reflect.Value, length int, options *Options) (int, error) {
+	if typ := f.Type.Resolve(options); typ == Pad {
+		return f.packPadding(buf, length)
+	}
+
+	if f.Slice {
+		return f.packSlice(buf, val, length, options)
+	}
+	return f.packVal(buf, val, length, options)
+}
+
+// packPadding packs padding bytes
+func (f *Field) packPadding(buf []byte, length int) (int, error) {
+	for i := 0; i < length; i++ {
+		buf[i] = 0
+	}
+	return length, nil
+}
+
+// packSlice packs a slice value into the buffer.
+// packSlice 将切片值打包到缓冲区中。
+func (f *Field) packSlice(buf []byte, val reflect.Value, length int, options *Options) (int, error) {
+	end := val.Len()
+	typ := f.Type.Resolve(options)
+
+	// Optimize for byte slices and strings
+	if !f.Array && typ == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
+		return f.packByteSlice(buf, val, end, length)
+	}
+
+	return f.packGenericSlice(buf, val, end, length, options)
+}
+
+// packByteSlice optimizes packing for byte slices
+func (f *Field) packByteSlice(buf []byte, val reflect.Value, end, length int) (int, error) {
+	var data []byte
+	if f.kind == reflect.String {
+		data = []byte(val.String())
+	} else {
+		data = val.Bytes()
+	}
+	copy(buf, data)
+	if end < length {
+		// Zero-fill the remaining space
+		for i := end; i < length; i++ {
+			buf[i] = 0
+		}
+		return length, nil
+	}
+	return end, nil
+}
+
+// packGenericSlice packs a generic slice
+func (f *Field) packGenericSlice(buf []byte, val reflect.Value, end, length int, options *Options) (int, error) {
+	pos := 0
+	var zero reflect.Value
+	if end < length {
+		zero = reflect.Zero(val.Type().Elem())
+	}
+
+	for i := 0; i < length; i++ {
+		cur := zero
+		if i < end {
+			cur = val.Index(i)
+		}
+		n, err := f.packVal(buf[pos:], cur, 1, options)
+		if err != nil {
+			return pos, fmt.Errorf("failed to pack slice element %d: %w", i, err)
+		}
+		pos += n
+	}
+
+	return pos, nil
+}
+
+// Unpack unpacks the field value from the buffer.
+// Unpack 从缓冲区中解包字段值。
+func (f *Field) Unpack(buf []byte, val reflect.Value, length int, options *Options) error {
+	typ := f.Type.Resolve(options)
+
+	if typ == Pad || f.kind == reflect.String {
+		return f.unpackPadOrString(buf, val, typ)
+	}
+
+	if f.Slice {
+		return f.unpackSlice(buf, val, length, options)
+	}
+
+	return f.unpackVal(buf, val, length, options)
+}
+
+// unpackPadOrString handles unpacking of padding or string types
+func (f *Field) unpackPadOrString(buf []byte, val reflect.Value, typ Type) error {
+	if typ == Pad {
+		return nil
+	}
+	val.SetString(string(buf))
+	return nil
+}
+
+// unpackSlice handles unpacking of slice types
+func (f *Field) unpackSlice(buf []byte, val reflect.Value, length int, options *Options) error {
+	if val.Cap() < length {
+		val.Set(reflect.MakeSlice(val.Type(), length, length))
+	} else if val.Len() < length {
+		val.Set(val.Slice(0, length))
+	}
+
+	typ := f.Type.Resolve(options)
+	if !f.Array && typ == Uint8 && f.defType == Uint8 {
+		copy(val.Bytes(), buf[:length])
+		return nil
+	}
+
+	size := typ.Size()
+	for i := 0; i < length; i++ {
+		pos := i * size
+		if err := f.unpackVal(buf[pos:pos+size], val.Index(i), 1, options); err != nil {
+			return fmt.Errorf("failed to unpack slice element %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// unpackVal unpacks a single value from the buffer.
+// unpackVal 从缓冲区中解包单个值。
+func (f *Field) unpackVal(buf []byte, val reflect.Value, length int, options *Options) error {
+	order := f.getByteOrder(options)
+	if f.Ptr {
+		val = val.Elem()
+	}
+
+	typ := f.Type.Resolve(options)
+	switch typ {
+	case Float32, Float64:
+		return f.unpackFloat(buf, val, typ, order)
+	case Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
+		return f.unpackInteger(buf, val, typ, order)
+	default:
+		return fmt.Errorf("no unpack handler for type: %s", typ)
+	}
+}
+
+// unpackFloat unpacks a float value
+func (f *Field) unpackFloat(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) error {
+	var n float64
+	switch typ {
+	case Float32:
+		n = float64(math.Float32frombits(order.Uint32(buf)))
+	case Float64:
+		n = math.Float64frombits(order.Uint64(buf))
+	}
+
+	switch f.kind {
+	case reflect.Float32, reflect.Float64:
+		val.SetFloat(n)
+		return nil
+	default:
+		return fmt.Errorf("struc: refusing to unpack float into field %s of type %s", f.Name, f.kind.String())
+	}
+}
+
+// unpackInteger unpacks an integer value
+func (f *Field) unpackInteger(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) error {
+	n := f.readInteger(buf, typ, order)
+
+	switch f.kind {
+	case reflect.Bool:
+		val.SetBool(n != 0)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		val.SetInt(int64(n))
+	default:
+		val.SetUint(n)
+	}
+	return nil
+}
+
+// readInteger reads an integer value from the buffer
+func (f *Field) readInteger(buf []byte, typ Type, order binary.ByteOrder) uint64 {
+	switch typ {
+	case Int8:
+		return uint64(int64(int8(buf[0])))
+	case Int16:
+		return uint64(int64(int16(order.Uint16(buf))))
+	case Int32:
+		return uint64(int64(int32(order.Uint32(buf))))
+	case Int64:
+		return uint64(int64(order.Uint64(buf)))
+	case Bool, Uint8:
+		return uint64(buf[0])
+	case Uint16:
+		return uint64(order.Uint16(buf))
+	case Uint32:
+		return uint64(order.Uint32(buf))
+	case Uint64:
+		return uint64(order.Uint64(buf))
+	default:
+		return 0
+	}
 }
 
 // getIntegerValue extracts an integer value from a reflect.Value.
@@ -205,184 +460,4 @@ func (f *Field) writeFloat(buf []byte, n float64, typ Type, order binary.ByteOrd
 		return fmt.Errorf("unsupported float type: %v", typ)
 	}
 	return nil
-}
-
-// Pack packs the field value into the buffer.
-// Pack 将字段值打包到缓冲区中。
-func (f *Field) Pack(buf []byte, val reflect.Value, length int, options *Options) (int, error) {
-	if typ := f.Type.Resolve(options); typ == Pad {
-		for i := 0; i < length; i++ {
-			buf[i] = 0
-		}
-		return length, nil
-	}
-
-	if f.Slice {
-		return f.packSlice(buf, val, length, options)
-	}
-	return f.packVal(buf, val, length, options)
-}
-
-// packSlice packs a slice value into the buffer.
-// packSlice 将切片值打包到缓冲区中。
-func (f *Field) packSlice(buf []byte, val reflect.Value, length int, options *Options) (int, error) {
-	end := val.Len()
-	typ := f.Type.Resolve(options)
-
-	// Optimize for byte slices and strings
-	if !f.Array && typ == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
-		var data []byte
-		if f.kind == reflect.String {
-			data = []byte(val.String())
-		} else {
-			data = val.Bytes()
-		}
-		copy(buf, data)
-		if end < length {
-			// Zero-fill the remaining space
-			for i := end; i < length; i++ {
-				buf[i] = 0
-			}
-			return length, nil
-		}
-		return end, nil
-	}
-
-	// Pack slice elements
-	pos := 0
-	var zero reflect.Value
-	if end < length {
-		zero = reflect.Zero(val.Type().Elem())
-	}
-
-	for i := 0; i < length; i++ {
-		cur := zero
-		if i < end {
-			cur = val.Index(i)
-		}
-		n, err := f.packVal(buf[pos:], cur, 1, options)
-		if err != nil {
-			return pos, fmt.Errorf("failed to pack slice element %d: %w", i, err)
-		}
-		pos += n
-	}
-
-	return pos, nil
-}
-
-// joinStrings joins strings with a separator.
-// joinStrings 使用分隔符连接字符串。
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	if len(strs) == 1 {
-		return strs[0]
-	}
-
-	n := len(sep) * (len(strs) - 1)
-	for i := 0; i < len(strs); i++ {
-		n += len(strs[i])
-	}
-
-	var b bytes.Buffer
-	b.Grow(n)
-	b.WriteString(strs[0])
-	for _, s := range strs[1:] {
-		b.WriteString(sep)
-		b.WriteString(s)
-	}
-	return b.String()
-}
-
-func (f *Field) unpackVal(buf []byte, val reflect.Value, length int, options *Options) error {
-	order := f.Order
-	if options.Order != nil {
-		order = options.Order
-	}
-	if f.Ptr {
-		val = val.Elem()
-	}
-	typ := f.Type.Resolve(options)
-	switch typ {
-	case Float32, Float64:
-		var n float64
-		switch typ {
-		case Float32:
-			n = float64(math.Float32frombits(order.Uint32(buf)))
-		case Float64:
-			n = math.Float64frombits(order.Uint64(buf))
-		}
-		switch f.kind {
-		case reflect.Float32, reflect.Float64:
-			val.SetFloat(n)
-		default:
-			return fmt.Errorf("struc: refusing to unpack float into field %s of type %s", f.Name, f.kind.String())
-		}
-	case Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
-		var n uint64
-		switch typ {
-		case Int8:
-			n = uint64(int64(int8(buf[0])))
-		case Int16:
-			n = uint64(int64(int16(order.Uint16(buf))))
-		case Int32:
-			n = uint64(int64(int32(order.Uint32(buf))))
-		case Int64:
-			n = uint64(int64(order.Uint64(buf)))
-		case Bool, Uint8:
-			n = uint64(buf[0])
-		case Uint16:
-			n = uint64(order.Uint16(buf))
-		case Uint32:
-			n = uint64(order.Uint32(buf))
-		case Uint64:
-			n = uint64(order.Uint64(buf))
-		}
-		switch f.kind {
-		case reflect.Bool:
-			val.SetBool(n != 0)
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			val.SetInt(int64(n))
-		default:
-			val.SetUint(n)
-		}
-	default:
-		panic(fmt.Sprintf("no unpack handler for type: %s", typ))
-	}
-	return nil
-}
-
-func (f *Field) Unpack(buf []byte, val reflect.Value, length int, options *Options) error {
-	typ := f.Type.Resolve(options)
-	if typ == Pad || f.kind == reflect.String {
-		if typ == Pad {
-			return nil
-		} else {
-			val.SetString(string(buf))
-			return nil
-		}
-	} else if f.Slice {
-		if val.Cap() < length {
-			val.Set(reflect.MakeSlice(val.Type(), length, length))
-		} else if val.Len() < length {
-			val.Set(val.Slice(0, length))
-		}
-		// special case byte slices for performance
-		if !f.Array && typ == Uint8 && f.defType == Uint8 {
-			copy(val.Bytes(), buf[:length])
-			return nil
-		}
-		pos := 0
-		size := typ.Size()
-		for i := 0; i < length; i++ {
-			if err := f.unpackVal(buf[pos:pos+size], val.Index(i), 1, options); err != nil {
-				return err
-			}
-			pos += size
-		}
-		return nil
-	} else {
-		return f.unpackVal(buf, val, length, options)
-	}
 }
