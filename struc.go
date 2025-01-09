@@ -54,7 +54,7 @@ var emptyOptions = &Options{}
 func init() {
 	// Fill default values to avoid data race
 	// 填充默认值以避免数据竞争
-	emptyOptions.Validate()
+	_ = emptyOptions.Validate()
 }
 
 // prep prepares a value for packing or unpacking.
