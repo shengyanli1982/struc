@@ -10,24 +10,6 @@ import (
 	"sync"
 )
 
-// Field represents a single field in a struct.
-// Field 表示结构体中的单个字段。
-type Field struct {
-	Name     string           // Field name 字段名称
-	Ptr      bool             // Whether the field is a pointer 字段是否为指针
-	Index    int              // Field index in struct 字段在结构体中的索引
-	Type     Type             // Field type 字段类型
-	defType  Type             // Default type 默认类型
-	Array    bool             // Whether the field is an array 字段是否为数组
-	Slice    bool             // Whether the field is a slice 字段是否为切片
-	Len      int              // Length for arrays/fixed slices 数组/固定切片的长度
-	Order    binary.ByteOrder // Byte order 字节序
-	Sizeof   []int            // Sizeof reference indices sizeof 引用索引
-	Sizefrom []int            // Size reference indices 大小引用索引
-	Fields   Fields           // Nested fields for struct types 结构体类型的嵌套字段
-	kind     reflect.Kind     // Reflect kind 反射类型
-}
-
 // fieldBufferPool is used to reduce allocations when packing/unpacking
 // fieldBufferPool 用于减少打包/解包时的内存分配
 var fieldBufferPool = sync.Pool{
@@ -36,11 +18,29 @@ var fieldBufferPool = sync.Pool{
 	},
 }
 
+// Field represents a single field in a struct.
+// Field 表示结构体中的单个字段。
+type Field struct {
+	Name       string           // Field name 字段名称
+	IsPointer  bool             // Whether the field is a pointer 字段是否为指针
+	Index      int              // Field index in struct 字段在结构体中的索引
+	Type       Type             // Field type 字段类型
+	defType    Type             // Default type 默认类型
+	IsArray    bool             // Whether the field is an array 字段是否为数组
+	IsSlice    bool             // Whether the field is a slice 字段是否为切片
+	Length     int              // Length for arrays/fixed slices 数组/固定切片的长度
+	ByteOrder  binary.ByteOrder // Byte order 字节序
+	Sizeof     []int            // Sizeof reference indices sizeof 引用索引
+	Sizefrom   []int            // Size reference indices 大小引用索引
+	NestFields Fields           // Nested fields for struct types 结构体类型的嵌套字段
+	kind       reflect.Kind     // Reflect kind 反射类型
+}
+
 // String returns a string representation of the field.
 // String 返回字段的字符串表示。
 func (f *Field) String() string {
 	if f.Type == Pad {
-		return fmt.Sprintf("{type: Pad, len: %d}", f.Len)
+		return fmt.Sprintf("{type: Pad, len: %d}", f.Length)
 	}
 
 	b := fieldBufferPool.Get().(*bytes.Buffer)
@@ -50,13 +50,13 @@ func (f *Field) String() string {
 	b.WriteString("{")
 	b.WriteString(fmt.Sprintf("type: %s", f.Type))
 
-	if f.Order != nil {
-		b.WriteString(fmt.Sprintf(", order: %v", f.Order))
+	if f.ByteOrder != nil {
+		b.WriteString(fmt.Sprintf(", order: %v", f.ByteOrder))
 	}
 	if f.Sizefrom != nil {
 		b.WriteString(fmt.Sprintf(", sizefrom: %v", f.Sizefrom))
-	} else if f.Len > 0 {
-		b.WriteString(fmt.Sprintf(", len: %d", f.Len))
+	} else if f.Length > 0 {
+		b.WriteString(fmt.Sprintf(", len: %d", f.Length))
 	}
 	if f.Sizeof != nil {
 		b.WriteString(fmt.Sprintf(", sizeof: %v", f.Sizeof))
@@ -76,7 +76,7 @@ func (f *Field) Size(val reflect.Value, options *Options) int {
 	case Struct:
 		size = f.calculateStructSize(val, options)
 	case Pad:
-		size = f.Len
+		size = f.Length
 	case CustomType:
 		size = f.calculateCustomSize(val, options)
 	default:
@@ -86,19 +86,21 @@ func (f *Field) Size(val reflect.Value, options *Options) int {
 	return f.alignSize(size, options)
 }
 
+// calculateStructSize 计算结构体类型的大小
 // calculateStructSize calculates size for struct types
 func (f *Field) calculateStructSize(val reflect.Value, options *Options) int {
-	if f.Slice {
+	if f.IsSlice {
 		length := val.Len()
 		size := 0
 		for i := 0; i < length; i++ {
-			size += f.Fields.Sizeof(val.Index(i), options)
+			size += f.NestFields.Sizeof(val.Index(i), options)
 		}
 		return size
 	}
-	return f.Fields.Sizeof(val, options)
+	return f.NestFields.Sizeof(val, options)
 }
 
+// calculateCustomSize 计算自定义类型的大小
 // calculateCustomSize calculates size for custom types
 func (f *Field) calculateCustomSize(val reflect.Value, options *Options) int {
 	if c, ok := val.Addr().Interface().(Custom); ok {
@@ -107,19 +109,21 @@ func (f *Field) calculateCustomSize(val reflect.Value, options *Options) int {
 	return 0
 }
 
+// calculateBasicSize 计算基本类型的大小
 // calculateBasicSize calculates size for basic types
 func (f *Field) calculateBasicSize(val reflect.Value, typ Type, options *Options) int {
 	elemSize := typ.Size()
-	if f.Slice || f.kind == reflect.String {
+	if f.IsSlice || f.kind == reflect.String {
 		length := val.Len()
-		if f.Len > 1 {
-			length = f.Len
+		if f.Length > 1 {
+			length = f.Length // 使用指定的固定长度 / Use specified fixed length
 		}
 		return length * elemSize
 	}
 	return elemSize
 }
 
+// alignSize 根据 ByteAlign 选项对齐大小
 // alignSize aligns the size according to ByteAlign option
 func (f *Field) alignSize(size int, options *Options) int {
 	if align := options.ByteAlign; align > 0 {
@@ -130,20 +134,24 @@ func (f *Field) alignSize(size int, options *Options) int {
 	return size
 }
 
-// packVal packs a single value into the buffer.
-// packVal 将单个值打包到缓冲区中。
-func (f *Field) packVal(buf []byte, val reflect.Value, length int, options *Options) (size int, err error) {
-	order := f.getByteOrder(options)
-	if f.Ptr {
+// packSingleValue 将单个值打包到缓冲区中
+// packSingleValue packs a single value into the buffer
+func (f *Field) packSingleValue(buf []byte, val reflect.Value, length int, options *Options) (size int, err error) {
+	// 获取字节序并处理指针类型
+	// Get byte order and handle pointer type
+	order := f.determineByteOrder(options)
+	if f.IsPointer {
 		val = val.Elem()
 	}
 
+	// 解析类型并根据类型选择相应的打包方法
+	// Resolve type and choose appropriate packing method
 	typ := f.Type.Resolve(options)
 	switch typ {
 	case Struct:
-		return f.Fields.Pack(buf, val, options)
+		return f.NestFields.Pack(buf, val, options)
 	case Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
-		return f.packInteger(buf, val, typ, order)
+		return f.packIntegerValue(buf, val, typ, order)
 	case Float32, Float64:
 		return f.packFloat(buf, val, typ, order)
 	case String:
@@ -155,16 +163,18 @@ func (f *Field) packVal(buf []byte, val reflect.Value, length int, options *Opti
 	}
 }
 
-// getByteOrder returns the byte order to use
-func (f *Field) getByteOrder(options *Options) binary.ByteOrder {
+// determineByteOrder 返回要使用的字节序
+// determineByteOrder returns the byte order to use
+func (f *Field) determineByteOrder(options *Options) binary.ByteOrder {
 	if options.Order != nil {
 		return options.Order
 	}
-	return f.Order
+	return f.ByteOrder
 }
 
-// packInteger packs an integer value
-func (f *Field) packInteger(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) (int, error) {
+// packIntegerValue 打包整数值
+// packIntegerValue packs an integer value
+func (f *Field) packIntegerValue(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) (int, error) {
 	n := f.getIntegerValue(val)
 	size := typ.Size()
 	if err := f.writeInteger(buf, n, typ, order); err != nil {
@@ -173,6 +183,7 @@ func (f *Field) packInteger(buf []byte, val reflect.Value, typ Type, order binar
 	return size, nil
 }
 
+// packFloat 打包浮点数值
 // packFloat packs a float value
 func (f *Field) packFloat(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) (int, error) {
 	n := val.Float()
@@ -183,6 +194,7 @@ func (f *Field) packFloat(buf []byte, val reflect.Value, typ Type, order binary.
 	return size, nil
 }
 
+// packString 打包字符串值
 // packString packs a string value
 func (f *Field) packString(buf []byte, val reflect.Value) (int, error) {
 	var data []byte
@@ -197,6 +209,7 @@ func (f *Field) packString(buf []byte, val reflect.Value) (int, error) {
 	return size, nil
 }
 
+// packCustom 打包自定义类型
 // packCustom packs a custom type
 func (f *Field) packCustom(buf []byte, val reflect.Value, options *Options) (int, error) {
 	if c, ok := val.Addr().Interface().(Custom); ok {
@@ -205,43 +218,50 @@ func (f *Field) packCustom(buf []byte, val reflect.Value, options *Options) (int
 	return 0, fmt.Errorf("failed to pack custom type: %v", val.Type())
 }
 
-// Pack packs the field value into the buffer.
-// Pack 将字段值打包到缓冲区中。
+// Pack 将字段值打包到缓冲区中
+// Pack packs the field value into the buffer
 func (f *Field) Pack(buf []byte, val reflect.Value, length int, options *Options) (int, error) {
+	// 处理填充类型
+	// Handle padding type
 	if typ := f.Type.Resolve(options); typ == Pad {
-		return f.packPadding(buf, length)
+		return f.packPaddingBytes(buf, length)
 	}
 
-	if f.Slice {
-		return f.packSlice(buf, val, length, options)
+	// 根据字段是否为切片选择打包方法
+	// Choose packing method based on whether the field is a slice
+	if f.IsSlice {
+		return f.packSliceValue(buf, val, length, options)
 	}
-	return f.packVal(buf, val, length, options)
+	return f.packSingleValue(buf, val, length, options)
 }
 
-// packPadding packs padding bytes
-func (f *Field) packPadding(buf []byte, length int) (int, error) {
+// packPaddingBytes 打包填充字节
+// packPaddingBytes packs padding bytes
+func (f *Field) packPaddingBytes(buf []byte, length int) (int, error) {
 	for i := 0; i < length; i++ {
 		buf[i] = 0
 	}
 	return length, nil
 }
 
-// packSlice packs a slice value into the buffer.
-// packSlice 将切片值打包到缓冲区中。
-func (f *Field) packSlice(buf []byte, val reflect.Value, length int, options *Options) (int, error) {
+// packSliceValue 将切片值打包到缓冲区中
+// packSliceValue packs a slice value into the buffer
+func (f *Field) packSliceValue(buf []byte, val reflect.Value, length int, options *Options) (int, error) {
 	end := val.Len()
 	typ := f.Type.Resolve(options)
 
-	// Optimize for byte slices and strings
-	if !f.Array && typ == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
-		return f.packByteSlice(buf, val, end, length)
+	// 对字节切片和字符串类型进行优化处理
+	// Optimize handling for byte slices and strings
+	if !f.IsArray && typ == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
+		return f.packOptimizedByteSlice(buf, val, end, length)
 	}
 
 	return f.packGenericSlice(buf, val, end, length, options)
 }
 
-// packByteSlice optimizes packing for byte slices
-func (f *Field) packByteSlice(buf []byte, val reflect.Value, end, length int) (int, error) {
+// packOptimizedByteSlice 优化字节切片的打包
+// packOptimizedByteSlice optimizes packing for byte slices
+func (f *Field) packOptimizedByteSlice(buf []byte, val reflect.Value, end, length int) (int, error) {
 	var data []byte
 	if f.kind == reflect.String {
 		data = []byte(val.String())
@@ -250,6 +270,7 @@ func (f *Field) packByteSlice(buf []byte, val reflect.Value, end, length int) (i
 	}
 	copy(buf, data)
 	if end < length {
+		// 用零值填充剩余空间
 		// Zero-fill the remaining space
 		for i := end; i < length; i++ {
 			buf[i] = 0
@@ -259,6 +280,7 @@ func (f *Field) packByteSlice(buf []byte, val reflect.Value, end, length int) (i
 	return end, nil
 }
 
+// packGenericSlice 打包通用切片
 // packGenericSlice packs a generic slice
 func (f *Field) packGenericSlice(buf []byte, val reflect.Value, end, length int, options *Options) (int, error) {
 	pos := 0
@@ -272,7 +294,7 @@ func (f *Field) packGenericSlice(buf []byte, val reflect.Value, end, length int,
 		if i < end {
 			cur = val.Index(i)
 		}
-		n, err := f.packVal(buf[pos:], cur, 1, options)
+		n, err := f.packSingleValue(buf[pos:], cur, 1, options)
 		if err != nil {
 			return pos, fmt.Errorf("failed to pack slice element %d: %w", i, err)
 		}
@@ -282,24 +304,29 @@ func (f *Field) packGenericSlice(buf []byte, val reflect.Value, end, length int,
 	return pos, nil
 }
 
-// Unpack unpacks the field value from the buffer.
-// Unpack 从缓冲区中解包字段值。
+// Unpack 从缓冲区中解包字段值
+// Unpack unpacks the field value from the buffer
 func (f *Field) Unpack(buf []byte, val reflect.Value, length int, options *Options) error {
 	typ := f.Type.Resolve(options)
 
+	// 处理填充和字符串类型
+	// Handle padding and string types
 	if typ == Pad || f.kind == reflect.String {
-		return f.unpackPadOrString(buf, val, typ)
+		return f.unpackPaddingOrStringValue(buf, val, typ)
 	}
 
-	if f.Slice {
-		return f.unpackSlice(buf, val, length, options)
+	// 根据字段是否为切片选择解包方法
+	// Choose unpacking method based on whether the field is a slice
+	if f.IsSlice {
+		return f.unpackSliceValue(buf, val, length, options)
 	}
 
-	return f.unpackVal(buf, val, length, options)
+	return f.unpackSingleValue(buf, val, length, options)
 }
 
-// unpackPadOrString handles unpacking of padding or string types
-func (f *Field) unpackPadOrString(buf []byte, val reflect.Value, typ Type) error {
+// unpackPaddingOrStringValue 处理填充或字符串类型的解包
+// unpackPaddingOrStringValue handles unpacking of padding or string types
+func (f *Field) unpackPaddingOrStringValue(buf []byte, val reflect.Value, typ Type) error {
 	if typ == Pad {
 		return nil
 	}
@@ -307,8 +334,9 @@ func (f *Field) unpackPadOrString(buf []byte, val reflect.Value, typ Type) error
 	return nil
 }
 
-// unpackSlice handles unpacking of slice types
-func (f *Field) unpackSlice(buf []byte, val reflect.Value, length int, options *Options) error {
+// unpackSliceValue 处理切片类型的解包
+// unpackSliceValue handles unpacking of slice types
+func (f *Field) unpackSliceValue(buf []byte, val reflect.Value, length int, options *Options) error {
 	if val.Cap() < length {
 		val.Set(reflect.MakeSlice(val.Type(), length, length))
 	} else if val.Len() < length {
@@ -316,7 +344,7 @@ func (f *Field) unpackSlice(buf []byte, val reflect.Value, length int, options *
 	}
 
 	typ := f.Type.Resolve(options)
-	if !f.Array && typ == Uint8 && f.defType == Uint8 {
+	if !f.IsArray && typ == Uint8 && f.defType == Uint8 {
 		copy(val.Bytes(), buf[:length])
 		return nil
 	}
@@ -324,32 +352,37 @@ func (f *Field) unpackSlice(buf []byte, val reflect.Value, length int, options *
 	size := typ.Size()
 	for i := 0; i < length; i++ {
 		pos := i * size
-		if err := f.unpackVal(buf[pos:pos+size], val.Index(i), 1, options); err != nil {
+		if err := f.unpackSingleValue(buf[pos:pos+size], val.Index(i), 1, options); err != nil {
 			return fmt.Errorf("failed to unpack slice element %d: %w", i, err)
 		}
 	}
 	return nil
 }
 
-// unpackVal unpacks a single value from the buffer.
-// unpackVal 从缓冲区中解包单个值。
-func (f *Field) unpackVal(buf []byte, val reflect.Value, length int, options *Options) error {
-	order := f.getByteOrder(options)
-	if f.Ptr {
+// unpackSingleValue 从缓冲区中解包单个值
+// unpackSingleValue unpacks a single value from the buffer
+func (f *Field) unpackSingleValue(buf []byte, val reflect.Value, length int, options *Options) error {
+	// 获取字节序并处理指针类型
+	// Get byte order and handle pointer type
+	order := f.determineByteOrder(options)
+	if f.IsPointer {
 		val = val.Elem()
 	}
 
+	// 根据类型选择相应的解包方法
+	// Choose appropriate unpacking method based on type
 	typ := f.Type.Resolve(options)
 	switch typ {
 	case Float32, Float64:
 		return f.unpackFloat(buf, val, typ, order)
 	case Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
-		return f.unpackInteger(buf, val, typ, order)
+		return f.unpackIntegerValue(buf, val, typ, order)
 	default:
 		return fmt.Errorf("no unpack handler for type: %s", typ)
 	}
 }
 
+// unpackFloat 解包浮点数值
 // unpackFloat unpacks a float value
 func (f *Field) unpackFloat(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) error {
 	var n float64
@@ -369,8 +402,9 @@ func (f *Field) unpackFloat(buf []byte, val reflect.Value, typ Type, order binar
 	}
 }
 
-// unpackInteger unpacks an integer value
-func (f *Field) unpackInteger(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) error {
+// unpackIntegerValue 解包整数值
+// unpackIntegerValue unpacks an integer value
+func (f *Field) unpackIntegerValue(buf []byte, val reflect.Value, typ Type, order binary.ByteOrder) error {
 	n := f.readInteger(buf, typ, order)
 
 	switch f.kind {
@@ -384,6 +418,7 @@ func (f *Field) unpackInteger(buf []byte, val reflect.Value, typ Type, order bin
 	return nil
 }
 
+// readInteger 从缓冲区读取整数值
 // readInteger reads an integer value from the buffer
 func (f *Field) readInteger(buf []byte, typ Type, order binary.ByteOrder) uint64 {
 	switch typ {
@@ -424,8 +459,8 @@ func (f *Field) getIntegerValue(val reflect.Value) uint64 {
 	}
 }
 
-// writeInteger writes an integer value to the buffer.
-// writeInteger 将整数值写入缓冲区。
+// writeInteger 将整数值写入缓冲区
+// writeInteger writes an integer value to the buffer
 func (f *Field) writeInteger(buf []byte, n uint64, typ Type, order binary.ByteOrder) error {
 	switch typ {
 	case Bool:
@@ -448,8 +483,8 @@ func (f *Field) writeInteger(buf []byte, n uint64, typ Type, order binary.ByteOr
 	return nil
 }
 
-// writeFloat writes a float value to the buffer.
-// writeFloat 将浮点值写入缓冲区。
+// writeFloat 将浮点数值写入缓冲区
+// writeFloat writes a float value to the buffer
 func (f *Field) writeFloat(buf []byte, n float64, typ Type, order binary.ByteOrder) error {
 	switch typ {
 	case Float32:

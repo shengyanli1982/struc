@@ -5,32 +5,38 @@ import (
 	"reflect"
 )
 
+// Type 定义了支持的数据类型枚举
+// Type defines the enumeration of supported data types
 type Type int
 
 const (
-	Invalid Type = iota
-	Pad
-	Bool
-	Int
-	Int8
-	Uint8
-	Int16
-	Uint16
-	Int32
-	Uint32
-	Int64
-	Uint64
-	Float32
-	Float64
-	String
-	Struct
-	Ptr
-
-	SizeType
-	OffType
-	CustomType
+	Invalid    Type = iota // 无效类型 / Invalid type
+	Pad                    // 填充类型 / Padding type
+	Bool                   // 布尔类型 / Boolean type
+	Int                    // 整数类型 / Integer type
+	Int8                   // 8位整数 / 8-bit integer
+	Uint8                  // 8位无符号整数 / 8-bit unsigned integer
+	Int16                  // 16位整数 / 16-bit integer
+	Uint16                 // 16位无符号整数 / 16-bit unsigned integer
+	Int32                  // 32位整数 / 32-bit integer
+	Uint32                 // 32位无符号整数 / 32-bit unsigned integer
+	Int64                  // 64位整数 / 64-bit integer
+	Uint64                 // 64位无符号整数 / 64-bit unsigned integer
+	Float32                // 32位浮点数 / 32-bit float
+	Float64                // 64位浮点数 / 64-bit float
+	String                 // 字符串类型 / String type
+	Struct                 // 结构体类型 / Struct type
+	Ptr                    // 指针类型 / Pointer type
+	SizeType               // size_t 类型 / size_t type
+	OffType                // off_t 类型 / off_t type
+	CustomType             // 自定义类型 / Custom type
 )
 
+// Resolve 根据选项解析实际类型
+// 主要用于处理 SizeType 和 OffType 这样的平台相关类型
+//
+// Resolve resolves the actual type based on options
+// Mainly used to handle platform-dependent types like SizeType and OffType
 func (t Type) Resolve(options *Options) Type {
 	switch t {
 	case OffType:
@@ -63,10 +69,14 @@ func (t Type) Resolve(options *Options) Type {
 	return t
 }
 
+// String 返回类型的字符串表示
+// String returns the string representation of the type
 func (t Type) String() string {
 	return typeToString[t]
 }
 
+// Size 返回类型的字节大小
+// Size returns the size of the type in bytes
 func (t Type) Size() int {
 	switch t {
 	case SizeType, OffType:
@@ -84,6 +94,8 @@ func (t Type) Size() int {
 	}
 }
 
+// typeStrToType 定义了字符串到类型的映射关系
+// typeStrToType defines the mapping from strings to types
 var typeStrToType = map[string]Type{
 	"pad":     Pad,
 	"bool":    Bool,
@@ -103,19 +115,33 @@ var typeStrToType = map[string]Type{
 	"off_t":  OffType,
 }
 
+// typeToString 定义了类型到字符串的映射关系
+// typeToString defines the mapping from types to strings
 var typeToString = map[Type]string{
 	CustomType: "Custom",
 }
 
+// init 初始化类型到字符串的映射
+// init initializes the type to string mapping
 func init() {
 	for name, enum := range typeStrToType {
 		typeToString[enum] = name
 	}
 }
 
+// Size_t 是平台相关的无符号整数类型，用于表示大小
+// Size_t is a platform-dependent unsigned integer type used to represent sizes
 type Size_t uint64
+
+// Off_t 是平台相关的有符号整数类型，用于表示偏移量
+// Off_t is a platform-dependent signed integer type used to represent offsets
 type Off_t int64
 
+// typeKindToType 定义了 reflect.Kind 到 Type 的映射关系
+// 用于将 Go 的反射类型转换为 struc 包的类型系统
+//
+// typeKindToType defines the mapping from reflect.Kind to Type
+// Used to convert Go reflection types to struc package's type system
 var typeKindToType = map[reflect.Kind]Type{
 	reflect.Bool:    Bool,
 	reflect.Int8:    Int8,

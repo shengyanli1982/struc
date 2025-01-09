@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"sync"
 )
 
 // Options defines the configuration options for packing and unpacking.
@@ -26,12 +25,6 @@ type Options struct {
 	Order binary.ByteOrder
 }
 
-// cache for parsed fields to improve performance
-// 缓存已解析的字段以提高性能
-var (
-	fieldsCache sync.Map // map[reflect.Type]Packer
-)
-
 // Validate checks if the options are valid.
 // Validate 检查选项是否有效。
 func (o *Options) Validate() error {
@@ -47,19 +40,19 @@ func (o *Options) Validate() error {
 	return nil
 }
 
-// Default options instance to avoid repeated allocations
-// 默认选项实例，避免重复分配
-var emptyOptions = &Options{}
+// defaultPackingOptions is the default instance to avoid repeated allocations
+// defaultPackingOptions 是默认的实例，避免重复分配
+var defaultPackingOptions = &Options{}
 
 func init() {
 	// Fill default values to avoid data race
 	// 填充默认值以避免数据竞争
-	_ = emptyOptions.Validate()
+	_ = defaultPackingOptions.Validate()
 }
 
-// prep prepares a value for packing or unpacking.
-// prep 准备一个值用于打包或解包。
-func prep(data interface{}) (reflect.Value, Packer, error) {
+// prepareValueForPacking prepares a value for packing or unpacking.
+// prepareValueForPacking 准备一个值用于打包或解包。
+func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 	if data == nil {
 		return reflect.Value{}, nil, fmt.Errorf("cannot pack/unpack nil data")
 	}
@@ -77,12 +70,6 @@ func prep(data interface{}) (reflect.Value, Packer, error) {
 		}
 	}
 
-	// Check if we have a cached packer for this type
-	// 检查是否有此类型的缓存打包器
-	if packer, ok := fieldsCache.Load(value.Type()); ok {
-		return value, packer.(Packer), nil
-	}
-
 	var packer Packer
 	var err error
 
@@ -92,9 +79,6 @@ func prep(data interface{}) (reflect.Value, Packer, error) {
 			return reflect.Value{}, nil, fmt.Errorf("failed to parse fields: %w", err)
 		} else {
 			packer = fields
-			// Cache the parsed fields for future use
-			// 缓存解析的字段以供将来使用
-			fieldsCache.Store(value.Type(), fields)
 		}
 	default:
 		if !value.IsValid() {
@@ -120,13 +104,13 @@ func Pack(w io.Writer, data interface{}) error {
 // PackWithOptions 使用指定的选项将数据打包到写入器中。
 func PackWithOptions(w io.Writer, data interface{}, options *Options) error {
 	if options == nil {
-		options = emptyOptions
+		options = defaultPackingOptions
 	}
 	if err := options.Validate(); err != nil {
 		return fmt.Errorf("invalid options: %w", err)
 	}
 
-	val, packer, err := prep(data)
+	val, packer, err := prepareValueForPacking(data)
 	if err != nil {
 		return fmt.Errorf("preparation failed: %w", err)
 	}
@@ -163,13 +147,13 @@ func Unpack(r io.Reader, data interface{}) error {
 // UnpackWithOptions 使用指定的选项从读取器中解包数据。
 func UnpackWithOptions(r io.Reader, data interface{}, options *Options) error {
 	if options == nil {
-		options = emptyOptions
+		options = defaultPackingOptions
 	}
 	if err := options.Validate(); err != nil {
 		return fmt.Errorf("invalid options: %w", err)
 	}
 
-	val, packer, err := prep(data)
+	val, packer, err := prepareValueForPacking(data)
 	if err != nil {
 		return fmt.Errorf("preparation failed: %w", err)
 	}
@@ -187,13 +171,13 @@ func Sizeof(data interface{}) (int, error) {
 // SizeofWithOptions 使用指定的选项返回打包数据的大小。
 func SizeofWithOptions(data interface{}, options *Options) (int, error) {
 	if options == nil {
-		options = emptyOptions
+		options = defaultPackingOptions
 	}
 	if err := options.Validate(); err != nil {
 		return 0, fmt.Errorf("invalid options: %w", err)
 	}
 
-	val, packer, err := prep(data)
+	val, packer, err := prepareValueForPacking(data)
 	if err != nil {
 		return 0, fmt.Errorf("preparation failed: %w", err)
 	}
