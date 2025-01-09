@@ -7,24 +7,24 @@ import (
 	"sync"
 )
 
-// byteWriterPool 用于复用 byteWriter 对象，减少内存分配
-// byteWriterPool is used to reuse byteWriter objects to reduce memory allocations
-var byteWriterPool = sync.Pool{
+// binaryWriterPool 用于复用 binaryWriter 对象，减少内存分配
+// binaryWriterPool is used to reuse binaryWriter objects to reduce memory allocations
+var binaryWriterPool = sync.Pool{
 	New: func() interface{} {
-		return &byteWriter{}
+		return &binaryWriter{}
 	},
 }
 
-// byteWriter 实现了 io.Writer 接口，用于高效的字节写入
-// byteWriter implements io.Writer interface for efficient byte writing
-type byteWriter struct {
+// binaryWriter 实现了 io.Writer 接口，用于高效的字节写入
+// binaryWriter implements io.Writer interface for efficient byte writing
+type binaryWriter struct {
 	buf []byte
 	pos int
 }
 
 // Write 实现 io.Writer 接口
 // Write implements io.Writer interface
-func (b *byteWriter) Write(p []byte) (int, error) {
+func (b *binaryWriter) Write(p []byte) (int, error) {
 	capacity := len(b.buf) - b.pos
 	if capacity < len(p) {
 		p = p[:capacity]
@@ -36,25 +36,25 @@ func (b *byteWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// reset 重置 byteWriter 的状态以便复用
-// reset resets the byteWriter state for reuse
-func (b *byteWriter) reset(buf []byte) {
+// reset 重置 binaryWriter 的状态以便复用
+// reset resets the binaryWriter state for reuse
+func (b *binaryWriter) reset(buf []byte) {
 	b.buf = buf
 	b.pos = 0
 }
 
-// getByteWriter 从对象池获取 byteWriter
-// getByteWriter gets a byteWriter from the pool
-func getByteWriter(buf []byte) *byteWriter {
-	w := byteWriterPool.Get().(*byteWriter)
+// getBinaryWriter 从对象池获取 binaryWriter
+// getBinaryWriter gets a binaryWriter from the pool
+func getBinaryWriter(buf []byte) *binaryWriter {
+	w := binaryWriterPool.Get().(*binaryWriter)
 	w.reset(buf)
 	return w
 }
 
-// putByteWriter 将 byteWriter 放回对象池
-// putByteWriter puts the byteWriter back to the pool
-func putByteWriter(w *byteWriter) {
-	byteWriterPool.Put(w)
+// putBinaryWriter 将 binaryWriter 放回对象池
+// putBinaryWriter puts the binaryWriter back to the pool
+func putBinaryWriter(w *binaryWriter) {
+	binaryWriterPool.Put(w)
 }
 
 type binaryFallback reflect.Value
@@ -68,8 +68,8 @@ func (b binaryFallback) Sizeof(val reflect.Value, options *Options) int {
 }
 
 func (b binaryFallback) Pack(buf []byte, val reflect.Value, options *Options) (int, error) {
-	tmp := getByteWriter(buf)
-	defer putByteWriter(tmp)
+	tmp := getBinaryWriter(buf)
+	defer putBinaryWriter(tmp)
 
 	order := options.Order
 	if order == nil {

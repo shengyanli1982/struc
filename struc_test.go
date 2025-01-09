@@ -74,7 +74,7 @@ type Example struct {
 	CustomTypeSizeArr []byte // "ABCD"
 }
 
-var five = 5
+var testFive = 5
 
 type ExampleStructWithin struct {
 	a uint8
@@ -90,7 +90,7 @@ type ExampleArray struct {
 	Props    [16]ExampleStructWithin `struc:"[16]ExampleStructWithin"`
 }
 
-var arraySliceReferenceBytes = []byte{
+var testArraySliceBytes = []byte{
 	16,
 	0, 0, 0, 1,
 	0, 0, 0, 1,
@@ -111,7 +111,7 @@ var arraySliceReferenceBytes = []byte{
 	0, 0, 0, 16,
 }
 
-var arrayReference = &ExampleArray{
+var testArrayExample = &ExampleArray{
 	16,
 	[16]ExampleStructWithin{
 		ExampleStructWithin{1},
@@ -133,7 +133,7 @@ var arrayReference = &ExampleArray{
 	},
 }
 
-var sliceReference = &ExampleSlice{
+var testSliceExample = &ExampleSlice{
 	16,
 	[]ExampleStructWithin{
 		ExampleStructWithin{1},
@@ -155,7 +155,7 @@ var sliceReference = &ExampleSlice{
 	},
 }
 
-var reference = &Example{
+var testExample = &Example{
 	nil,
 	1, 2, 3, 4, 5, 6, 7, 8, 0, []byte{'a', 'b', 'c', 'd'},
 	9, 10, 11, 12, 13, 14, 15, 16, true, false, [4]byte{'e', 'f', 'g', 'h'},
@@ -168,13 +168,13 @@ var reference = &Example{
 	4, []byte("5678"),
 	7, "ijklmno", "pqrstuv",
 	4, []byte("5678"),
-	Nested{1}, &Nested{2}, &five,
+	Nested{1}, &Nested{2}, &testFive,
 	6, []Nested{{3}, {4}, {5}, {6}, {7}, {8}},
 	0,
 	Int3(4), []byte("ABCD"),
 }
 
-var referenceBytes = []byte{
+var testExampleBytes = []byte{
 	0, 0, 0, 0, 0, // pad(5)
 	1, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, // fake int8-int64(1-4)
 	5, 6, 0, 7, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, // fake little-endian uint8-uint64(5-8)
@@ -215,49 +215,49 @@ var referenceBytes = []byte{
 
 func TestCodec(t *testing.T) {
 	var buf bytes.Buffer
-	if err := Pack(&buf, reference); err != nil {
+	if err := Pack(&buf, testExample); err != nil {
 		t.Fatal(err)
 	}
 	out := &Example{}
 	if err := Unpack(&buf, out); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(reference, out) {
-		fmt.Printf("got: %#v\nwant: %#v\n", out, reference)
+	if !reflect.DeepEqual(testExample, out) {
+		fmt.Printf("got: %#v\nwant: %#v\n", out, testExample)
 		t.Fatal("encode/decode failed")
 	}
 }
 
 func TestEncode(t *testing.T) {
 	var buf bytes.Buffer
-	if err := Pack(&buf, reference); err != nil {
+	if err := Pack(&buf, testExample); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(buf.Bytes(), referenceBytes) {
-		fmt.Printf("got: %#v\nwant: %#v\n", buf.Bytes(), referenceBytes)
+	if !bytes.Equal(buf.Bytes(), testExampleBytes) {
+		fmt.Printf("got: %#v\nwant: %#v\n", buf.Bytes(), testExampleBytes)
 		t.Fatal("encode failed")
 	}
 }
 
 func TestDecode(t *testing.T) {
-	buf := bytes.NewReader(referenceBytes)
+	buf := bytes.NewReader(testExampleBytes)
 	out := &Example{}
 	if err := Unpack(buf, out); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(reference, out) {
-		fmt.Printf("got: %#v\nwant: %#v\n", out, reference)
+	if !reflect.DeepEqual(testExample, out) {
+		fmt.Printf("got: %#v\nwant: %#v\n", out, testExample)
 		t.Fatal("decode failed")
 	}
 }
 
 func TestSizeof(t *testing.T) {
-	size, err := Sizeof(reference)
+	size, err := Sizeof(testExample)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if size != len(referenceBytes) {
-		t.Fatalf("sizeof failed; expected %d, got %d", len(referenceBytes), size)
+	if size != len(testExampleBytes) {
+		t.Fatalf("sizeof failed; expected %d, got %d", len(testExampleBytes), size)
 	}
 }
 

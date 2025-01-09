@@ -28,9 +28,9 @@ type Field struct {
 	kind     reflect.Kind     // Reflect kind 反射类型
 }
 
-// bufferPool is used to reduce allocations when packing/unpacking
-// bufferPool 用于减少打包/解包时的内存分配
-var bufferPool = sync.Pool{
+// fieldBufferPool is used to reduce allocations when packing/unpacking
+// fieldBufferPool 用于减少打包/解包时的内存分配
+var fieldBufferPool = sync.Pool{
 	New: func() interface{} {
 		return bytes.NewBuffer(make([]byte, 0, 1024)) // 预分配 1KB 的初始容量
 	},
@@ -43,9 +43,9 @@ func (f *Field) String() string {
 		return fmt.Sprintf("{type: Pad, len: %d}", f.Len)
 	}
 
-	b := bufferPool.Get().(*bytes.Buffer)
+	b := fieldBufferPool.Get().(*bytes.Buffer)
 	b.Reset()
-	defer bufferPool.Put(b)
+	defer fieldBufferPool.Put(b)
 
 	b.WriteString("{")
 	b.WriteString(fmt.Sprintf("type: %s", f.Type))

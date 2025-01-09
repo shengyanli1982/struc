@@ -18,8 +18,8 @@ import (
 // 10 bits: Fraction
 type Float16 float64
 
-// float16Buf provides a thread-safe buffer pool for Float16 operations
-var float16Buf = sync.Pool{
+// float16BufferPool provides a thread-safe buffer pool for Float16 operations
+var float16BufferPool = sync.Pool{
 	New: func() interface{} {
 		return make([]byte, 2)
 	},
@@ -84,8 +84,8 @@ func (f *Float16) Pack(p []byte, opt *Options) (int, error) {
 // The binary format follows the IEEE 754-2008 binary16 specification.
 func (f *Float16) Unpack(r io.Reader, length int, opt *Options) error {
 	// Get buffer from pool
-	tmp := float16Buf.Get().([]byte)
-	defer float16Buf.Put(tmp)
+	tmp := float16BufferPool.Get().([]byte)
+	defer float16BufferPool.Put(tmp)
 
 	order := opt.Order
 	if order == nil {

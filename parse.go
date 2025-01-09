@@ -52,7 +52,7 @@ func parseStrucTag(tag reflect.StructTag) *strucTag {
 	return t
 }
 
-var typeLenRe = regexp.MustCompile(`^\[(\d*)\]`)
+var typeArrayLenRegex = regexp.MustCompile(`^\[(\d*)\]`)
 
 func parseField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
 	tag = parseStrucTag(f.Tag)
@@ -85,12 +85,12 @@ func parseField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
 		return
 	}
 	var defTypeOk bool
-	fd.defType, defTypeOk = reflectTypeMap[fd.kind]
+	fd.defType, defTypeOk = typeKindToType[fd.kind]
 	// find a type in the struct tag
-	pureType := typeLenRe.ReplaceAllLiteralString(tag.Type, "")
-	if fd.Type, ok = typeLookup[pureType]; ok {
+	pureType := typeArrayLenRegex.ReplaceAllLiteralString(tag.Type, "")
+	if fd.Type, ok = typeStrToType[pureType]; ok {
 		fd.Len = 1
-		match := typeLenRe.FindAllStringSubmatch(tag.Type, -1)
+		match := typeArrayLenRegex.FindAllStringSubmatch(tag.Type, -1)
 		if len(match) > 0 && len(match[0]) > 1 {
 			fd.Slice = true
 			first := match[0][1]
@@ -113,7 +113,7 @@ func parseField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
 		if defTypeOk {
 			fd.Type = fd.defType
 		} else {
-			err = errors.New(fmt.Sprintf("struc: Could not resolve field '%v' type '%v'.", f.Name, f.Type))
+			err = fmt.Errorf("struc: Could not resolve field '%v' type '%v'.", f.Name, f.Type)
 		}
 	}
 	return

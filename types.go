@@ -64,7 +64,7 @@ func (t Type) Resolve(options *Options) Type {
 }
 
 func (t Type) String() string {
-	return typeNames[t]
+	return typeToString[t]
 }
 
 func (t Type) Size() int {
@@ -84,7 +84,7 @@ func (t Type) Size() int {
 	}
 }
 
-var typeLookup = map[string]Type{
+var typeStrToType = map[string]Type{
 	"pad":     Pad,
 	"bool":    Bool,
 	"byte":    Uint8,
@@ -103,20 +103,20 @@ var typeLookup = map[string]Type{
 	"off_t":  OffType,
 }
 
-var typeNames = map[Type]string{
+var typeToString = map[Type]string{
 	CustomType: "Custom",
 }
 
 func init() {
-	for name, enum := range typeLookup {
-		typeNames[enum] = name
+	for name, enum := range typeStrToType {
+		typeToString[enum] = name
 	}
 }
 
 type Size_t uint64
 type Off_t int64
 
-var reflectTypeMap = map[reflect.Kind]Type{
+var typeKindToType = map[reflect.Kind]Type{
 	reflect.Bool:    Bool,
 	reflect.Int8:    Int8,
 	reflect.Int16:   Int16,

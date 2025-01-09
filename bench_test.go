@@ -17,7 +17,7 @@ type BenchExample struct {
 func BenchmarkArrayEncode(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		if err := Pack(&buf, arrayReference); err != nil {
+		if err := Pack(&buf, testArrayExample); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -26,7 +26,7 @@ func BenchmarkArrayEncode(b *testing.B) {
 func BenchmarkSliceEncode(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		if err := Pack(&buf, sliceReference); err != nil {
+		if err := Pack(&buf, testSliceExample); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -35,7 +35,7 @@ func BenchmarkSliceEncode(b *testing.B) {
 func BenchmarkArrayDecode(b *testing.B) {
 	var out ExampleArray
 	for i := 0; i < b.N; i++ {
-		buf := bytes.NewBuffer(arraySliceReferenceBytes)
+		buf := bytes.NewBuffer(testArraySliceBytes)
 		if err := Unpack(buf, &out); err != nil {
 			b.Fatal(err)
 		}
@@ -45,7 +45,7 @@ func BenchmarkArrayDecode(b *testing.B) {
 func BenchmarkSliceDecode(b *testing.B) {
 	var out ExampleSlice
 	for i := 0; i < b.N; i++ {
-		buf := bytes.NewBuffer(arraySliceReferenceBytes)
+		buf := bytes.NewBuffer(testArraySliceBytes)
 		if err := Unpack(buf, &out); err != nil {
 			b.Fatal(err)
 		}
@@ -61,26 +61,26 @@ type BenchStrucExample struct {
 	Data    []byte
 }
 
-var benchRef = &BenchExample{
+var testBenchExample = &BenchExample{
 	[5]byte{1, 2, 3, 4, 5},
 	1, 2, 3, 4,
 	[4]byte{1, 2, 3, 4},
 	8,
 }
 
-var eightBytes = []byte("8bytestr")
+var testEightByteString = []byte("8bytestr")
 
-var benchStrucRef = &BenchStrucExample{
+var testBenchStrucExample = &BenchStrucExample{
 	[5]byte{1, 2, 3, 4, 5},
 	1, 2, 3, 4,
 	[4]byte{1, 2, 3, 4},
-	8, eightBytes,
+	8, testEightByteString,
 }
 
 func BenchmarkEncode(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		err := Pack(&buf, benchStrucRef)
+		err := Pack(&buf, testBenchStrucExample)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -90,11 +90,11 @@ func BenchmarkEncode(b *testing.B) {
 func BenchmarkStdlibEncode(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		err := binary.Write(&buf, binary.BigEndian, benchRef)
+		err := binary.Write(&buf, binary.BigEndian, testBenchExample)
 		if err != nil {
 			b.Fatal(err)
 		}
-		_, err = buf.Write(eightBytes)
+		_, err = buf.Write(testEightByteString)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -103,7 +103,7 @@ func BenchmarkStdlibEncode(b *testing.B) {
 
 func BenchmarkManualEncode(b *testing.B) {
 	order := binary.BigEndian
-	s := benchStrucRef
+	s := testBenchStrucExample
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
 		tmp := make([]byte, 29)
@@ -125,7 +125,7 @@ func BenchmarkManualEncode(b *testing.B) {
 func BenchmarkDecode(b *testing.B) {
 	var out BenchStrucExample
 	var buf bytes.Buffer
-	if err := Pack(&buf, benchStrucRef); err != nil {
+	if err := Pack(&buf, testBenchStrucExample); err != nil {
 		b.Fatal(err)
 	}
 	bufBytes := buf.Bytes()
@@ -142,8 +142,8 @@ func BenchmarkDecode(b *testing.B) {
 func BenchmarkStdlibDecode(b *testing.B) {
 	var out BenchExample
 	var buf bytes.Buffer
-	binary.Write(&buf, binary.BigEndian, *benchRef)
-	_, err := buf.Write(eightBytes)
+	binary.Write(&buf, binary.BigEndian, *testBenchExample)
+	_, err := buf.Write(testEightByteString)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func BenchmarkStdlibDecode(b *testing.B) {
 func BenchmarkManualDecode(b *testing.B) {
 	var o BenchStrucExample
 	var buf bytes.Buffer
-	if err := Pack(&buf, benchStrucRef); err != nil {
+	if err := Pack(&buf, testBenchStrucExample); err != nil {
 		b.Fatal(err)
 	}
 	tmp := buf.Bytes()
@@ -186,7 +186,7 @@ func BenchmarkManualDecode(b *testing.B) {
 func BenchmarkFullEncode(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		if err := Pack(&buf, reference); err != nil {
+		if err := Pack(&buf, testExample); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -195,7 +195,7 @@ func BenchmarkFullEncode(b *testing.B) {
 func BenchmarkFullDecode(b *testing.B) {
 	var out Example
 	for i := 0; i < b.N; i++ {
-		buf := bytes.NewBuffer(referenceBytes)
+		buf := bytes.NewBuffer(testExampleBytes)
 		if err := Unpack(buf, &out); err != nil {
 			b.Fatal(err)
 		}
