@@ -62,6 +62,7 @@ func getBinaryWriter(buf []byte) *binaryWriter {
 // putBinaryWriter 将 binaryWriter 放回对象池
 // putBinaryWriter puts the binaryWriter back to the pool
 func putBinaryWriter(w *binaryWriter) {
+	w.reset(nil)
 	binaryWriterPool.Put(w)
 }
 

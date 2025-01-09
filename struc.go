@@ -184,21 +184,3 @@ func SizeofWithOptions(data interface{}, options *Options) (int, error) {
 
 	return packer.Sizeof(val, options), nil
 }
-
-// calculatePackedSizeWithOptions returns the size of the packed data using the specified options.
-// calculatePackedSizeWithOptions 使用指定的选项返回打包数据的大小。
-func calculatePackedSizeWithOptions(data interface{}, options *Options) (int, error) {
-	if options == nil {
-		options = defaultPackingOptions
-	}
-	if err := options.Validate(); err != nil {
-		return 0, fmt.Errorf("invalid options: %w", err)
-	}
-
-	val, packer, err := prepareValueForPacking(data)
-	if err != nil {
-		return 0, fmt.Errorf("preparation failed: %w", err)
-	}
-
-	return packer.Sizeof(val, options), nil
-}
