@@ -139,21 +139,25 @@ func (f Fields) Release() {
 	releaseFields(f)
 }
 
-// Clone 克隆 Fields 切片，返回一个新的副本
-// Clone clones the Fields slice and returns a new copy
+// Clone 返回 Fields 切片的浅拷贝
+// 由于 Field 对象是不可变的（解析后不会修改），所以可以安全地共享
+// Clone returns a shallow copy of Fields slice
+// Since Field objects are immutable (won't be modified after parsing), they can be safely shared
+//
+// 总结：
+// Field 对象在创建后是不可变的
+// 所有操作都是只读的
+// 多个 Fields 可以安全地共享 Field 对象
+// 浅复制可以提高性能并减少内存使用
+// 不可变性保证了并发安全
 func (f Fields) Clone() Fields {
 	if f == nil {
 		return nil
 	}
+	// 直接复制切片，共享底层的 Field 对象
+	// Copy the slice directly, sharing the underlying Field objects
 	newFields := make(Fields, len(f))
-	for i, field := range f {
-		if field == nil {
-			continue
-		}
-		newField := acquireField()
-		*newField = *field // 复制字段内容 / Copy field content
-		newFields[i] = newField
-	}
+	copy(newFields, f)
 	return newFields
 }
 
