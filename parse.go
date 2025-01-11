@@ -12,137 +12,162 @@ import (
 )
 
 // 标签格式示例：struc:"int32,big,sizeof=Data,skip,sizefrom=Len"
+// 标签选项说明：
+// - int32: 字段类型
+// - big/little: 字节序
+// - sizeof=Field: 指定字段大小来源
+// - skip: 跳过该字段
+// - sizefrom=Field: 指定长度来源字段
+//
 // Tag format example: struc:"int32,big,sizeof=Data,skip,sizefrom=Len"
+// Tag options explanation:
+// - int32: field type
+// - big/little: byte order
+// - sizeof=Field: specify size source field
+// - skip: skip this field
+// - sizefrom=Field: specify length source field
 
 // strucTag 定义了结构体字段标签的解析结果
+// 包含了字段的类型、字节序、大小引用等信息
+//
 // strucTag defines the parsed result of struct field tags
+// Contains field type, byte order, size reference and other information
 type strucTag struct {
-	Type     string           // 字段类型 / Field type
-	Order    binary.ByteOrder // 字节序 / Byte order
-	Sizeof   string           // 大小引用字段 / Size reference field
-	Skip     bool             // 是否跳过 / Whether to skip
-	Sizefrom string           // 长度来源字段 / Length source field
+	Type     string           // 字段类型（如 int32, uint8 等）/ Field type (e.g., int32, uint8)
+	Order    binary.ByteOrder // 字节序（大端或小端）/ Byte order (big or little endian)
+	Sizeof   string           // 大小引用字段名 / Size reference field name
+	Skip     bool             // 是否跳过该字段 / Whether to skip this field
+	Sizefrom string           // 长度来源字段名 / Length source field name
 }
 
 // parseStrucTag 解析结构体字段的标签
+// 支持 struc 和 struct 两种标签名（向后兼容）
+//
 // parseStrucTag parses the tags of struct fields
-func parseStrucTag(tag reflect.StructTag) *strucTag {
+// Supports both 'struc' and 'struct' tag names (backward compatibility)
+func parseStrucTag(fieldTag reflect.StructTag) *strucTag {
 	// 初始化标签结构体，默认使用大端字节序
 	// Initialize tag struct with big-endian as default
-	t := &strucTag{
+	parsedTag := &strucTag{
 		Order: binary.BigEndian,
 	}
 
 	// 获取 struc 标签，如果不存在则尝试获取 struct 标签（容错处理）
 	// Get struc tag, fallback to struct tag if not found (error tolerance)
-	tagStr := tag.Get("struc")
-	if tagStr == "" {
-		tagStr = tag.Get("struct")
+	tagString := fieldTag.Get("struc")
+	if tagString == "" {
+		tagString = fieldTag.Get("struct")
 	}
 
 	// 解析标签字符串中的每个选项
 	// Parse each option in the tag string
-	for _, s := range strings.Split(tagStr, ",") {
-		if strings.HasPrefix(s, "sizeof=") {
+	for _, option := range strings.Split(tagString, ",") {
+		if strings.HasPrefix(option, "sizeof=") {
 			// 解析 sizeof 选项，指定字段大小来源
 			// Parse sizeof option, specifying size source field
-			tmp := strings.SplitN(s, "=", 2)
-			t.Sizeof = tmp[1]
-		} else if strings.HasPrefix(s, "sizefrom=") {
+			parts := strings.SplitN(option, "=", 2)
+			parsedTag.Sizeof = parts[1]
+		} else if strings.HasPrefix(option, "sizefrom=") {
 			// 解析 sizefrom 选项，指定长度来源字段
 			// Parse sizefrom option, specifying length source field
-			tmp := strings.SplitN(s, "=", 2)
-			t.Sizefrom = tmp[1]
-		} else if s == "big" {
+			parts := strings.SplitN(option, "=", 2)
+			parsedTag.Sizefrom = parts[1]
+		} else if option == "big" {
 			// 设置大端字节序
 			// Set big-endian byte order
-			t.Order = binary.BigEndian
-		} else if s == "little" {
+			parsedTag.Order = binary.BigEndian
+		} else if option == "little" {
 			// 设置小端字节序
 			// Set little-endian byte order
-			t.Order = binary.LittleEndian
-		} else if s == "skip" {
+			parsedTag.Order = binary.LittleEndian
+		} else if option == "skip" {
 			// 设置跳过标志
 			// Set skip flag
-			t.Skip = true
-		} else {
+			parsedTag.Skip = true
+		} else if option != "" {
 			// 设置字段类型
 			// Set field type
-			t.Type = s
+			parsedTag.Type = option
 		}
 	}
-	return t
+	return parsedTag
 }
 
 // arrayLengthParseRegex 用于匹配数组长度的正则表达式
+// 格式：[数字]，如 [5]、[]
+//
 // arrayLengthParseRegex is a regular expression for matching array length
+// Format: [number], e.g., [5], []
 var arrayLengthParseRegex = regexp.MustCompile(`^\[(\d*)\]`)
 
 // parseStructField 解析单个结构体字段，返回字段描述符和标签信息
+// 处理字段的类型、数组/切片、指针等特性
+//
 // parseStructField parses a single struct field, returns field descriptor and tag info
-func parseStructField(f reflect.StructField) (fd *Field, tag *strucTag, err error) {
+// Handles field type, array/slice, pointer and other characteristics
+func parseStructField(structField reflect.StructField) (fieldDesc *Field, fieldTag *strucTag, err error) {
 	// 解析字段标签
 	// Parse field tag
-	tag = parseStrucTag(f.Tag)
+	fieldTag = parseStrucTag(structField.Tag)
 	var ok bool
 
 	// 从对象池获取 Field 对象
 	// Get Field object from pool
-	fd = acquireField()
+	fieldDesc = acquireField()
 
 	// 初始化字段描述符
 	// Initialize field descriptor
-	fd.Name = f.Name
-	fd.Length = 1
-	fd.ByteOrder = tag.Order
-	fd.IsSlice = false
-	fd.kind = f.Type.Kind()
+	fieldDesc.Name = structField.Name
+	fieldDesc.Length = 1
+	fieldDesc.ByteOrder = fieldTag.Order
+	fieldDesc.IsSlice = false
+	fieldDesc.kind = structField.Type.Kind()
 
 	// 处理特殊类型：数组、切片和指针
 	// Handle special types: arrays, slices and pointers
-	switch fd.kind {
+	switch fieldDesc.kind {
 	case reflect.Array:
-		fd.IsSlice = true
-		fd.IsArray = true
-		fd.Length = f.Type.Len()
-		fd.kind = f.Type.Elem().Kind()
+		fieldDesc.IsSlice = true
+		fieldDesc.IsArray = true
+		fieldDesc.Length = structField.Type.Len()
+		fieldDesc.kind = structField.Type.Elem().Kind()
 	case reflect.Slice:
-		fd.IsSlice = true
-		fd.Length = -1
-		fd.kind = f.Type.Elem().Kind()
+		fieldDesc.IsSlice = true
+		fieldDesc.Length = -1
+		fieldDesc.kind = structField.Type.Elem().Kind()
 	case reflect.Ptr:
-		fd.IsPointer = true
-		fd.kind = f.Type.Elem().Kind()
+		fieldDesc.IsPointer = true
+		fieldDesc.kind = structField.Type.Elem().Kind()
 	}
 
 	// 检查是否为自定义类型
 	// Check if it's a custom type
-	tmp := reflect.New(f.Type)
-	if _, ok := tmp.Interface().(Custom); ok {
-		fd.Type = CustomType
+	tempValue := reflect.New(structField.Type)
+	if _, ok := tempValue.Interface().(Custom); ok {
+		fieldDesc.Type = CustomType
 		return
 	}
 
 	// 获取默认类型
 	// Get default type
 	var defTypeOk bool
-	fd.defType, defTypeOk = typeKindToType[fd.kind]
+	fieldDesc.defType, defTypeOk = typeKindToType[fieldDesc.kind]
 
 	// 从结构体标签中查找类型
 	// Find type in struct tag
-	pureType := arrayLengthParseRegex.ReplaceAllLiteralString(tag.Type, "")
-	if fd.Type, ok = typeStrToType[pureType]; ok {
-		fd.Length = 1
+	pureType := arrayLengthParseRegex.ReplaceAllLiteralString(fieldTag.Type, "")
+	if fieldDesc.Type, ok = typeStrToType[pureType]; ok {
+		fieldDesc.Length = 1
 		// 解析数组长度
 		// Parse array length
-		match := arrayLengthParseRegex.FindAllStringSubmatch(tag.Type, -1)
-		if len(match) > 0 && len(match[0]) > 1 {
-			fd.IsSlice = true
-			first := match[0][1]
-			if first == "" {
-				fd.Length = -1 // 动态长度切片 / Dynamic length slice
+		matches := arrayLengthParseRegex.FindAllStringSubmatch(fieldTag.Type, -1)
+		if len(matches) > 0 && len(matches[0]) > 1 {
+			fieldDesc.IsSlice = true
+			lengthStr := matches[0][1]
+			if lengthStr == "" {
+				fieldDesc.Length = -1 // 动态长度切片 / Dynamic length slice
 			} else {
-				fd.Length, err = strconv.Atoi(first)
+				fieldDesc.Length, err = strconv.Atoi(lengthStr)
 			}
 		}
 		return
@@ -150,20 +175,20 @@ func parseStructField(f reflect.StructField) (fd *Field, tag *strucTag, err erro
 
 	// 处理特殊类型 Size_t 和 Off_t
 	// Handle special types Size_t and Off_t
-	switch f.Type {
+	switch structField.Type {
 	case reflect.TypeOf(Size_t(0)):
-		fd.Type = SizeType
+		fieldDesc.Type = SizeType
 	case reflect.TypeOf(Off_t(0)):
-		fd.Type = OffType
+		fieldDesc.Type = OffType
 	default:
 		if defTypeOk {
-			fd.Type = fd.defType
+			fieldDesc.Type = fieldDesc.defType
 		} else {
 			// 如果发生错误，需要释放 Field 对象
 			// If error occurs, need to release Field object
-			releaseField(fd)
-			err = fmt.Errorf("struc: Could not resolve field '%v' type '%v'.", f.Name, f.Type)
-			fd = nil
+			releaseField(fieldDesc)
+			err = fmt.Errorf("struc: Could not resolve field '%v' type '%v'.", structField.Name, structField.Type)
+			fieldDesc = nil
 		}
 	}
 	return
@@ -174,80 +199,80 @@ func parseStructField(f reflect.StructField) (fd *Field, tag *strucTag, err erro
 //
 // parseFieldsLocked parses all fields of a struct while locked
 // This function handles complex types like nested structs, arrays and slices
-func parseFieldsLocked(v reflect.Value) (Fields, error) {
+func parseFieldsLocked(structValue reflect.Value) (Fields, error) {
 	// 解引用指针，直到获取到非指针类型
 	// Dereference pointers until we get a non-pointer type
-	for v.Kind() == reflect.Ptr {
-		v = v.Elem()
+	for structValue.Kind() == reflect.Ptr {
+		structValue = structValue.Elem()
 	}
-	t := v.Type()
+	structType := structValue.Type()
 
 	// 检查结构体是否有字段
 	// Check if the struct has any fields
-	if v.NumField() < 1 {
+	if structValue.NumField() < 1 {
 		return nil, errors.New("struc: Struct has no fields.")
 	}
 
 	// 创建大小引用映射和字段切片
 	// Create size reference map and fields slice
 	sizeofMap := make(map[string][]int)
-	fields := make(Fields, v.NumField())
+	fields := make(Fields, structValue.NumField())
 
 	// 遍历所有字段
 	// Iterate through all fields
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	for i := 0; i < structType.NumField(); i++ {
+		field := structType.Field(i)
 		// 解析字段和标签
 		// Parse field and tag
-		f, tag, err := parseStructField(field)
+		fieldDesc, fieldTag, err := parseStructField(field)
 		if err != nil {
 			// 发生错误时释放已创建的字段
 			// Release created fields when error occurs
 			releaseFields(fields)
 			return nil, err
 		}
-		if tag.Skip {
+		if fieldTag.Skip {
 			continue // 跳过标记为 skip 的字段 / Skip fields marked with skip
 		}
-		if !v.Field(i).CanSet() {
+		if !structValue.Field(i).CanSet() {
 			continue // 跳过不可设置的字段 / Skip fields that cannot be set
 		}
 
-		f.Index = i
+		fieldDesc.Index = i
 
 		// 处理 sizeof 标签
 		// Handle sizeof tag
-		if tag.Sizeof != "" {
-			target, ok := t.FieldByName(tag.Sizeof)
+		if fieldTag.Sizeof != "" {
+			targetField, ok := structType.FieldByName(fieldTag.Sizeof)
 			if !ok {
 				// 发生错误时释放已创建的字段
 				// Release created fields when error occurs
 				releaseFields(fields)
-				return nil, fmt.Errorf("struc: `sizeof=%s` field does not exist", tag.Sizeof)
+				return nil, fmt.Errorf("struc: `sizeof=%s` field does not exist", fieldTag.Sizeof)
 			}
-			f.Sizeof = target.Index
-			sizeofMap[tag.Sizeof] = field.Index
+			fieldDesc.Sizeof = targetField.Index
+			sizeofMap[fieldTag.Sizeof] = field.Index
 		}
 
 		// 处理 sizefrom 标签
 		// Handle sizefrom tag
 		if sizefrom, ok := sizeofMap[field.Name]; ok {
-			f.Sizefrom = sizefrom
+			fieldDesc.Sizefrom = sizefrom
 		}
-		if tag.Sizefrom != "" {
-			source, ok := t.FieldByName(tag.Sizefrom)
+		if fieldTag.Sizefrom != "" {
+			sourceField, ok := structType.FieldByName(fieldTag.Sizefrom)
 			if !ok {
 				// 发生错误时释放已创建的字段
 				// Release created fields when error occurs
 				releaseFields(fields)
-				return nil, fmt.Errorf("struc: `sizefrom=%s` field does not exist", tag.Sizefrom)
+				return nil, fmt.Errorf("struc: `sizefrom=%s` field does not exist", fieldTag.Sizefrom)
 			}
-			f.Sizefrom = source.Index
+			fieldDesc.Sizefrom = sourceField.Index
 		}
 
 		// 验证切片长度
 		// Validate slice length
-		if f.Length == -1 && f.Sizefrom == nil {
+		if fieldDesc.Length == -1 && fieldDesc.Sizefrom == nil {
 			// 发生错误时释放已创建的字段
 			// Release created fields when error occurs
 			releaseFields(fields)
@@ -256,58 +281,70 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 
 		// 递归处理嵌套结构体
 		// Recursively handle nested structs
-		if f.Type == Struct {
-			typ := field.Type
-			if f.IsPointer {
-				typ = typ.Elem()
+		if fieldDesc.Type == Struct {
+			fieldType := field.Type
+			if fieldDesc.IsPointer {
+				fieldType = fieldType.Elem()
 			}
-			if f.IsSlice {
-				typ = typ.Elem()
+			if fieldDesc.IsSlice {
+				fieldType = fieldType.Elem()
 			}
-			tmp := reflect.New(typ)
-			nestFields, err := parseFields(tmp.Elem())
+			tempValue := reflect.New(fieldType)
+			nestedFields, err := parseFields(tempValue.Elem())
 			if err != nil {
 				// 发生错误时释放已创建的字段
 				// Release created fields when error occurs
 				releaseFields(fields)
 				return nil, err
 			}
-			f.NestFields = nestFields
+			fieldDesc.NestFields = nestedFields
 		}
 
-		fields[i] = f
+		fields[i] = fieldDesc
 	}
 	return fields, nil
 }
 
-// Cache for parsed fields to improve performance
 // 缓存已解析的字段以提高性能
+// Cache parsed fields to improve performance
 var (
 	// parsedStructFieldCache 存储每个结构体类型的已解析字段
+	// 使用 sync.Map 保证并发安全
+	//
 	// parsedStructFieldCache stores parsed fields for each struct type
+	// Uses sync.Map to ensure thread safety
 	parsedStructFieldCache = sync.Map{}
 
 	// structParsingMutex 防止同一类型的并发解析
+	// 避免重复解析和资源浪费
+	//
 	// structParsingMutex prevents concurrent parsing of the same type
+	// Avoids duplicate parsing and resource waste
 	structParsingMutex sync.Mutex
 )
 
 // fieldCacheLookup 查找类型的缓存字段
+// 如果找到则返回缓存的字段，否则返回 nil
+//
 // fieldCacheLookup looks up cached fields for a type
-func fieldCacheLookup(t reflect.Type) Fields {
-	if cached, ok := parsedStructFieldCache.Load(t); ok {
+// Returns cached fields if found, nil otherwise
+func fieldCacheLookup(structType reflect.Type) Fields {
+	if cached, ok := parsedStructFieldCache.Load(structType); ok {
 		return cached.(Fields)
 	}
 	return nil
 }
 
 // parseFields 解析结构体的所有字段
+// 支持缓存和并发安全的字段解析
+//
 // parseFields parses all fields of a struct
-func parseFields(v reflect.Value) (Fields, error) {
+// Supports cached and thread-safe field parsing
+func parseFields(structValue reflect.Value) (Fields, error) {
 	// 从缓存中查找
 	// Look up in cache
-	t := v.Type()
-	if cached := fieldCacheLookup(t); cached != nil {
+	structType := structValue.Type()
+	if cached := fieldCacheLookup(structType); cached != nil {
 		// 返回缓存字段的克隆，避免并发修改
 		// Return a clone of cached fields to avoid concurrent modification
 		return cached.Clone(), nil
@@ -315,14 +352,14 @@ func parseFields(v reflect.Value) (Fields, error) {
 
 	// 解析字段
 	// Parse fields
-	fields, err := parseFieldsLocked(v)
+	fields, err := parseFieldsLocked(structValue)
 	if err != nil {
 		return nil, err
 	}
 
 	// 将解析结果存入缓存
 	// Store parsing result in cache
-	parsedStructFieldCache.Store(t, fields.Clone())
+	parsedStructFieldCache.Store(structType, fields.Clone())
 
 	return fields, nil
 }
