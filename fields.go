@@ -133,6 +133,30 @@ func (f Fields) Pack(buf []byte, val reflect.Value, options *Options) (int, erro
 	return pos, nil
 }
 
+// Release 释放 Fields 切片中的所有 Field 对象
+// Release releases all Field objects in the Fields slice
+func (f Fields) Release() {
+	releaseFields(f)
+}
+
+// Clone 克隆 Fields 切片，返回一个新的副本
+// Clone clones the Fields slice and returns a new copy
+func (f Fields) Clone() Fields {
+	if f == nil {
+		return nil
+	}
+	newFields := make(Fields, len(f))
+	for i, field := range f {
+		if field == nil {
+			continue
+		}
+		newField := acquireField()
+		*newField = *field // 复制字段内容 / Copy field content
+		newFields[i] = newField
+	}
+	return newFields
+}
+
 // Unpack 从 Reader 中读取数据并解包到字段集合中
 // Unpack deserializes data from a Reader into the fields collection
 func (f Fields) Unpack(r io.Reader, val reflect.Value, options *Options) error {

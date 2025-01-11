@@ -86,9 +86,9 @@ func parseStructField(f reflect.StructField) (fd *Field, tag *strucTag, err erro
 	tag = parseStrucTag(f.Tag)
 	var ok bool
 
-	// 创建新的 Field 对象
-	// Create new Field object
-	fd = &Field{}
+	// 从对象池获取 Field 对象
+	// Get Field object from pool
+	fd = acquireField()
 
 	// 初始化字段描述符
 	// Initialize field descriptor
@@ -159,6 +159,9 @@ func parseStructField(f reflect.StructField) (fd *Field, tag *strucTag, err erro
 		if defTypeOk {
 			fd.Type = fd.defType
 		} else {
+			// 如果发生错误，需要释放 Field 对象
+			// If error occurs, need to release Field object
+			releaseField(fd)
 			err = fmt.Errorf("struc: Could not resolve field '%v' type '%v'.", f.Name, f.Type)
 			fd = nil
 		}
@@ -197,11 +200,14 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 		// 解析字段和标签
 		// Parse field and tag
 		f, tag, err := parseStructField(field)
+		if err != nil {
+			// 发生错误时释放已创建的字段
+			// Release created fields when error occurs
+			releaseFields(fields)
+			return nil, err
+		}
 		if tag.Skip {
 			continue // 跳过标记为 skip 的字段 / Skip fields marked with skip
-		}
-		if err != nil {
-			return nil, err
 		}
 		if !v.Field(i).CanSet() {
 			continue // 跳过不可设置的字段 / Skip fields that cannot be set
@@ -214,6 +220,9 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 		if tag.Sizeof != "" {
 			target, ok := t.FieldByName(tag.Sizeof)
 			if !ok {
+				// 发生错误时释放已创建的字段
+				// Release created fields when error occurs
+				releaseFields(fields)
 				return nil, fmt.Errorf("struc: `sizeof=%s` field does not exist", tag.Sizeof)
 			}
 			f.Sizeof = target.Index
@@ -228,6 +237,9 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 		if tag.Sizefrom != "" {
 			source, ok := t.FieldByName(tag.Sizefrom)
 			if !ok {
+				// 发生错误时释放已创建的字段
+				// Release created fields when error occurs
+				releaseFields(fields)
 				return nil, fmt.Errorf("struc: `sizefrom=%s` field does not exist", tag.Sizefrom)
 			}
 			f.Sizefrom = source.Index
@@ -236,6 +248,9 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 		// 验证切片长度
 		// Validate slice length
 		if f.Length == -1 && f.Sizefrom == nil {
+			// 发生错误时释放已创建的字段
+			// Release created fields when error occurs
+			releaseFields(fields)
 			return nil, fmt.Errorf("struc: field `%s` is a slice with no length or sizeof field", field.Name)
 		}
 
@@ -249,10 +264,15 @@ func parseFieldsLocked(v reflect.Value) (Fields, error) {
 			if f.IsSlice {
 				typ = typ.Elem()
 			}
-			f.NestFields, err = parseFieldsLocked(reflect.New(typ))
+			tmp := reflect.New(typ)
+			nestFields, err := parseFields(tmp.Elem())
 			if err != nil {
+				// 发生错误时释放已创建的字段
+				// Release created fields when error occurs
+				releaseFields(fields)
 				return nil, err
 			}
+			f.NestFields = nestFields
 		}
 
 		fields[i] = f
@@ -281,43 +301,29 @@ func fieldCacheLookup(t reflect.Type) Fields {
 	return nil
 }
 
-// parseFields 解析结构体字段并缓存结果
-// parseFields parses struct fields and caches the result
+// parseFields 解析结构体的所有字段
+// parseFields parses all fields of a struct
 func parseFields(v reflect.Value) (Fields, error) {
-	// 解引用指针，直到获取到非指针类型
-	// Dereference pointers until we get a non-pointer type
-	for v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
+	// 从缓存中查找
+	// Look up in cache
 	t := v.Type()
-
-	// 快速路径：首先检查缓存
-	// Fast path: check cache first
 	if cached := fieldCacheLookup(t); cached != nil {
-		return cached, nil
+		// 返回缓存字段的克隆，避免并发修改
+		// Return a clone of cached fields to avoid concurrent modification
+		return cached.Clone(), nil
 	}
 
-	// 慢速路径：加锁解析字段
-	// Slow path: parse fields with lock
-	structParsingMutex.Lock()
-	defer structParsingMutex.Unlock()
-
-	// 双重检查缓存
-	// Double-check cache after acquiring lock
-	if cached := fieldCacheLookup(t); cached != nil {
-		return cached, nil
-	}
-
-	// 解析字段失败时返回错误
-	// Return error if field parsing fails
+	// 解析字段
+	// Parse fields
 	fields, err := parseFieldsLocked(v)
 	if err != nil {
 		return nil, err
 	}
 
-	// 将解析结果存储到缓存中
-	// Store parsing results in cache
-	parsedStructFieldCache.Store(t, fields)
+	// 将解析结果存入缓存
+	// Store parsing result in cache
+	parsedStructFieldCache.Store(t, fields.Clone())
+
 	return fields, nil
 }
 
