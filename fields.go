@@ -195,6 +195,80 @@ func (f Fields) Clone() Fields {
 	return newFields
 }
 
+// unpackStruct 处理结构体类型的解包
+// unpackStruct handles unpacking of struct types
+func (f Fields) unpackStruct(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options) error {
+	if field.IsSlice {
+		return f.unpackStructSlice(reader, fieldValue, fieldLength, field.IsArray, options)
+	}
+	return f.unpackSingleStruct(reader, fieldValue, options)
+}
+
+// unpackStructSlice 处理结构体切片的解包
+// unpackStructSlice handles unpacking of struct slices
+func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, fieldLength int, isArray bool, options *Options) error {
+	sliceValue := fieldValue
+	if !isArray {
+		sliceValue = reflect.MakeSlice(fieldValue.Type(), fieldLength, fieldLength)
+	}
+
+	for i := 0; i < fieldLength; i++ {
+		elementValue := sliceValue.Index(i)
+		fields, err := parseFields(elementValue)
+		if err != nil {
+			return err
+		}
+		if err := fields.Unpack(reader, elementValue, options); err != nil {
+			return err
+		}
+	}
+
+	if !isArray {
+		fieldValue.Set(sliceValue)
+	}
+	return nil
+}
+
+// unpackSingleStruct 处理单个结构体的解包
+// unpackSingleStruct handles unpacking of a single struct
+func (f Fields) unpackSingleStruct(reader io.Reader, fieldValue reflect.Value, options *Options) error {
+	fields, err := parseFields(fieldValue)
+	if err != nil {
+		return err
+	}
+	return fields.Unpack(reader, fieldValue, options)
+}
+
+// unpackBasicType 处理基本类型和自定义类型的解包
+// unpackBasicType handles unpacking of basic and custom types
+func (f Fields) unpackBasicType(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options) error {
+	resolvedType := field.Type.Resolve(options)
+	if resolvedType == CustomType {
+		return fieldValue.Addr().Interface().(Custom).Unpack(reader, fieldLength, options)
+	}
+
+	// 读取数据到缓冲区
+	// Read data into buffer
+	dataSize := fieldLength * resolvedType.Size()
+	var buffer []byte
+	if dataSize < 8 {
+		var tempBuffer [8]byte
+		buffer = tempBuffer[:dataSize]
+	} else {
+		buffer = make([]byte, dataSize)
+	}
+
+	// 从 reader 读取数据
+	// Read data from reader
+	if _, err := io.ReadFull(reader, buffer); err != nil {
+		return err
+	}
+
+	// 解包数据到字段值
+	// Unpack data into field value
+	return field.Unpack(buffer[:dataSize], fieldValue, fieldLength, options)
+}
+
 // Unpack 从 Reader 中读取数据并解包到字段集合中
 // 支持基本类型、结构体、切片和自定义类型
 //
@@ -206,11 +280,6 @@ func (f Fields) Unpack(reader io.Reader, structValue reflect.Value, options *Opt
 	for structValue.Kind() == reflect.Ptr {
 		structValue = structValue.Elem()
 	}
-
-	// 创建临时缓冲区
-	// Create temporary buffer
-	var tempBuffer [8]byte
-	var buffer []byte
 
 	// 遍历所有字段进行解包
 	// Iterate through all fields for unpacking
@@ -233,70 +302,15 @@ func (f Fields) Unpack(reader io.Reader, structValue reflect.Value, options *Opt
 			fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
 		}
 
-		// 处理结构体类型
-		// Handle struct types
+		// 根据字段类型选择相应的解包方法
+		// Choose appropriate unpacking method based on field type
 		if field.Type == Struct {
-			if field.IsSlice {
-				// 处理结构体切片
-				// Handle struct slices
-				sliceValue := fieldValue
-				if !field.IsArray {
-					sliceValue = reflect.MakeSlice(fieldValue.Type(), fieldLength, fieldLength)
-				}
-				for i := 0; i < fieldLength; i++ {
-					elementValue := sliceValue.Index(i)
-					fields, err := parseFields(elementValue)
-					if err != nil {
-						return err
-					}
-					if err := fields.Unpack(reader, elementValue, options); err != nil {
-						return err
-					}
-				}
-				if !field.IsArray {
-					fieldValue.Set(sliceValue)
-				}
-			} else {
-				// 处理单个结构体
-				// Handle single struct
-				fields, err := parseFields(fieldValue)
-				if err != nil {
-					return err
-				}
-				if err := fields.Unpack(reader, fieldValue, options); err != nil {
-					return err
-				}
+			if err := f.unpackStruct(reader, fieldValue, field, fieldLength, options); err != nil {
+				return err
 			}
-			continue
 		} else {
-			// 处理基本类型和自定义类型
-			// Handle basic types and custom types
-			resolvedType := field.Type.Resolve(options)
-			if resolvedType == CustomType {
-				if err := fieldValue.Addr().Interface().(Custom).Unpack(reader, fieldLength, options); err != nil {
-					return err
-				}
-			} else {
-				// 读取数据到缓冲区
-				// Read data into buffer
-				dataSize := fieldLength * field.Type.Resolve(options).Size()
-				if dataSize < 8 {
-					buffer = tempBuffer[:dataSize]
-				} else {
-					buffer = make([]byte, dataSize)
-				}
-
-				// 从 reader 读取数据
-				// Read data from reader
-				if _, err := io.ReadFull(reader, buffer); err != nil {
-					return err
-				}
-
-				// 解包数据到字段值
-				// Unpack data into field value
-				if err := field.Unpack(buffer[:dataSize], fieldValue, fieldLength, options); err != nil {
-					return err
-				}
+			if err := f.unpackBasicType(reader, fieldValue, field, fieldLength, options); err != nil {
+				return err
 			}
 		}
 	}
