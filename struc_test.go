@@ -268,11 +268,11 @@ type ExampleEndian struct {
 func TestEndianSwap(t *testing.T) {
 	var buf bytes.Buffer
 	big := &ExampleEndian{1}
-	if err := PackWithOrder(&buf, big, binary.BigEndian); err != nil {
+	if err := PackWithOptions(&buf, big, &Options{Order: binary.BigEndian}); err != nil {
 		t.Fatal(err)
 	}
 	little := &ExampleEndian{}
-	if err := UnpackWithOrder(&buf, little, binary.LittleEndian); err != nil {
+	if err := UnpackWithOptions(&buf, little, &Options{Order: binary.LittleEndian}); err != nil {
 		t.Fatal(err)
 	}
 	if little.T != 256 {

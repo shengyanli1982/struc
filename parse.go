@@ -340,19 +340,14 @@ var (
 	// parsedStructFieldCache stores parsed fields for each struct type
 	// Uses sync.Map to ensure thread safety
 	parsedStructFieldCache = sync.Map{}
-
-	// structParsingMutex 防止同一类型的并发解析
-	// 避免重复解析和资源浪费
-	//
-	// structParsingMutex prevents concurrent parsing of the same type
-	// Avoids duplicate parsing and resource waste
-	structParsingMutex sync.Mutex
 )
 
 // fieldCacheLookup 查找类型的缓存字段
-// 如果找到则返回缓存的字段，否则返回 nil
+// 使用 sync.Map 进行并发安全的缓存查找
+// 如果找到缓存的字段则返回，否则返回 nil
 //
 // fieldCacheLookup looks up cached fields for a type
+// Uses sync.Map for thread-safe cache lookup
 // Returns cached fields if found, nil otherwise
 func fieldCacheLookup(structType reflect.Type) Fields {
 	if cached, ok := parsedStructFieldCache.Load(structType); ok {
@@ -362,10 +357,14 @@ func fieldCacheLookup(structType reflect.Type) Fields {
 }
 
 // parseFields 解析结构体的所有字段
-// 支持缓存和并发安全的字段解析
+// 首先尝试从缓存中获取已解析的字段
+// 如果缓存未命中，则进行解析并将结果存入缓存
+// 返回字段切片和可能的错误
 //
 // parseFields parses all fields of a struct
-// Supports cached and thread-safe field parsing
+// First tries to get parsed fields from cache
+// If cache miss, performs parsing and stores result in cache
+// Returns slice of fields and possible error
 func parseFields(structValue reflect.Value) (Fields, error) {
 	// 从缓存中查找
 	// Look up in cache
