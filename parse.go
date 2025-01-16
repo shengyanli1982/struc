@@ -372,7 +372,7 @@ func parseFields(structValue reflect.Value) (Fields, error) {
 	if cached := fieldCacheLookup(structType); cached != nil {
 		// 返回缓存字段的克隆，避免并发修改
 		// Return a clone of cached fields to avoid concurrent modification
-		return cached.Clone(), nil
+		return cached, nil
 	}
 
 	// 解析字段
@@ -384,7 +384,7 @@ func parseFields(structValue reflect.Value) (Fields, error) {
 
 	// 将解析结果存入缓存
 	// Store parsing result in cache
-	parsedStructFieldCache.Store(structType, fields.Clone())
+	parsedStructFieldCache.Store(structType, fields)
 
 	return fields, nil
 }

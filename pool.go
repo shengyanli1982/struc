@@ -1,10 +1,55 @@
 package struc
 
 import (
+	"bytes"
 	"encoding/binary"
 	"reflect"
 	"sync"
 )
+
+const MaxCapSize = 1 << 20
+
+// bufferPool is used to reduce allocations when packing/unpacking
+// bufferPool 用于减少打包/解包时的内存分配
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return bytes.NewBuffer(make([]byte, 0, 1024))
+	},
+}
+
+// getBuffer gets a buffer from the pool
+func getBuffer() *bytes.Buffer {
+	return bufferPool.Get().(*bytes.Buffer)
+}
+
+// putBuffer returns a buffer to the pool
+func putBuffer(buf *bytes.Buffer) {
+	if buf == nil || buf.Cap() > MaxCapSize {
+		return
+	}
+
+	buf.Reset()
+	bufferPool.Put(buf)
+}
+
+var slicePool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 256)
+	},
+}
+
+func getSlice() []byte {
+	return slicePool.Get().([]byte)
+}
+
+func putSlice(slice []byte) {
+	if slice == nil || len(slice) > MaxCapSize {
+		return
+	}
+
+	slice = slice[:0]
+	slicePool.Put(slice)
+}
 
 // fieldPool 是 Field 对象的全局池
 // fieldPool is a global pool for Field objects

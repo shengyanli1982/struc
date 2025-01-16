@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sync"
 )
 
 // Options 定义了打包和解包的配置选项
@@ -73,6 +74,10 @@ func (o *Options) Validate() error {
 	return nil
 }
 
+// cache for parsed fields to improve performance
+// 缓存已解析的字段以提高性能
+var packerCache sync.Map // map[reflect.Type]Packer
+
 // defaultPackingOptions 是默认的打包选项实例
 // 用于避免重复分配内存，提高性能
 //
@@ -112,6 +117,12 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 		}
 	}
 
+	// Check if we have a cached packer for this type
+	// 检查是否有此类型的缓存打包器
+	if packer, ok := packerCache.Load(value.Type()); ok {
+		return value, packer.(Packer), nil
+	}
+
 	var packer Packer
 	var err error
 
@@ -125,6 +136,9 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 			return reflect.Value{}, nil, fmt.Errorf("failed to parse fields: %w", err)
 		} else {
 			packer = fields
+			// Cache the parsed fields for future use
+			// 缓存解析的字段以供将来使用
+			packerCache.Store(value.Type(), packer)
 		}
 	default:
 		if !value.IsValid() {

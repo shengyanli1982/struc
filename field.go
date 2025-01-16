@@ -53,9 +53,8 @@ func (f *Field) String() string {
 		return fmt.Sprintf("{type: Pad, len: %d}", f.Length)
 	}
 
-	buffer := fieldBufferPool.Get().(*bytes.Buffer)
-	buffer.Reset()
-	defer fieldBufferPool.Put(buffer)
+	buffer := getBuffer()
+	defer putBuffer(buffer)
 
 	buffer.WriteString("{")
 	buffer.WriteString(fmt.Sprintf("type: %s", f.Type))
