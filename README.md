@@ -3,7 +3,7 @@ English | [中文](./README_CN.md)
 # struc v2
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/struc/v2)](https://goreportcard.com/report/github.com/shengyanli1982/struc/v2)
-[![Build Status](https://github.com/shengyanli1982/struc/v2/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/struc/v2/actions)
+[![Build Status](https://github.com/shengyanli1982/struc/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/struc/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/struc/v2.svg)](https://pkg.go.dev/github.com/shengyanli1982/struc/v2)
 
 Struc v2 is a Go library for packing and unpacking binary data using C-style structure definitions. It provides a more convenient alternative to `encoding/binary`, eliminating the need for extensive boilerplate code.
