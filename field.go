@@ -3,24 +3,11 @@
 package struc
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"reflect"
-	"sync"
 )
-
-// fieldBufferPool 用于减少打包/解包时的内存分配
-// 通过复用缓冲区来提高性能
-//
-// fieldBufferPool is used to reduce memory allocations during packing/unpacking
-// Improves performance by reusing buffers
-var fieldBufferPool = sync.Pool{
-	New: func() interface{} {
-		return bytes.NewBuffer(make([]byte, 0, 1024)) // 预分配 1KB 的初始容量 / Pre-allocate 1KB initial capacity
-	},
-}
 
 // Field 表示结构体中的单个字段
 // 包含了字段的所有元数据信息，用于二进制打包和解包
@@ -53,9 +40,8 @@ func (f *Field) String() string {
 		return fmt.Sprintf("{type: Pad, len: %d}", f.Length)
 	}
 
-	buffer := fieldBufferPool.Get().(*bytes.Buffer)
-	buffer.Reset()
-	defer fieldBufferPool.Put(buffer)
+	buffer := getBuffer()
+	defer putBuffer(buffer)
 
 	buffer.WriteString("{")
 	buffer.WriteString(fmt.Sprintf("type: %s", f.Type))

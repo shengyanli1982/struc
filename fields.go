@@ -92,70 +92,10 @@ func (f Fields) sizefrom(structValue reflect.Value, fieldIndex []int) int {
 	}
 }
 
-// packStruct 处理结构体类型的打包
-// 根据字段是否为切片选择不同的打包方法
-//
-// packStruct handles packing of struct types
-// Chooses different packing methods based on whether the field is a slice
-func (f Fields) packStruct(buffer []byte, fieldValue reflect.Value, field *Field, fieldLength int, options *Options) (int, error) {
-	if field.IsSlice {
-		return f.packStructSlice(buffer, fieldValue, fieldLength, field.IsArray, options)
-	}
-	return f.packSingleStruct(buffer, fieldValue, options)
-}
-
-// packStructSlice 处理结构体切片的打包
-// 遍历切片中的每个结构体元素并进行打包
-//
-// packStructSlice handles packing of struct slices
-// Iterates through each struct element in the slice and packs it
-func (f Fields) packStructSlice(buffer []byte, fieldValue reflect.Value, fieldLength int, isArray bool, options *Options) (int, error) {
-	position := 0
-	for i := 0; i < fieldLength; i++ {
-		elementValue := fieldValue.Index(i)
-		fields, err := parseFields(elementValue)
-		if err != nil {
-			return position, err
-		}
-		bytesWritten, err := fields.Pack(buffer[position:], elementValue, options)
-		if err != nil {
-			return position, err
-		}
-		position += bytesWritten
-	}
-	return position, nil
-}
-
-// packSingleStruct 处理单个结构体的打包
-// 解析结构体字段并将其打包到缓冲区
-//
-// packSingleStruct handles packing of a single struct
-// Parses struct fields and packs them into the buffer
-func (f Fields) packSingleStruct(buffer []byte, fieldValue reflect.Value, options *Options) (int, error) {
-	fields, err := parseFields(fieldValue)
-	if err != nil {
-		return 0, err
-	}
-	return fields.Pack(buffer, fieldValue, options)
-}
-
-// packBasicType 处理基本类型和自定义类型的打包
-// 根据字段类型选择相应的打包方法
-//
-// packBasicType handles packing of basic and custom types
-// Chooses appropriate packing method based on field type
-func (f Fields) packBasicType(buffer []byte, fieldValue reflect.Value, field *Field, fieldLength int, options *Options) (int, error) {
-	resolvedType := field.Type.Resolve(options)
-	if resolvedType == CustomType {
-		return fieldValue.Addr().Interface().(Custom).Pack(buffer, options)
-	}
-	return field.Pack(buffer, fieldValue, fieldLength, options)
-}
-
-// Pack 将字段集合打包到缓冲区中
+// Pack 将字段集合打包到字节缓冲区中
 // 支持基本类型、结构体、切片和自定义类型
 //
-// Pack serializes the fields collection into a buffer
+// Pack serializes the fields collection into a byte buffer
 // Supports basic types, structs, slices and custom types
 func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options) (int, error) {
 	// 解引用指针，直到获取到非指针类型
@@ -193,6 +133,8 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 			sizeofLength := structValue.FieldByIndex(field.Sizeof).Len()
 			switch field.kind {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				// 创建新的整数值以避免修改原结构体
+				// Create new integer value to avoid modifying original struct
 				fieldValue = reflect.New(fieldValue.Type()).Elem()
 				fieldValue.SetInt(int64(sizeofLength))
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -203,17 +145,11 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 			}
 		}
 
-		// 根据字段类型选择相应的打包方法
-		// Choose appropriate packing method based on field type
-		var bytesWritten int
-		var err error
-		if field.Type == Struct {
-			bytesWritten, err = f.packStruct(buffer[position:], fieldValue, field, fieldLength, options)
-		} else {
-			bytesWritten, err = f.packBasicType(buffer[position:], fieldValue, field, fieldLength, options)
-		}
+		// 打包字段值
+		// Pack field value
+		bytesWritten, err := field.Pack(buffer[position:], fieldValue, fieldLength, options)
 		if err != nil {
-			return position, err
+			return bytesWritten, err
 		}
 		position += bytesWritten
 	}
@@ -227,36 +163,6 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 // Used for memory management and resource cleanup
 func (f Fields) Release() {
 	releaseFields(f)
-}
-
-// Clone 返回 Fields 切片的浅拷贝
-// 由于 Field 对象是不可变的（解析后不会修改），所以可以安全地共享
-//
-// Clone returns a shallow copy of Fields slice
-// Since Field objects are immutable (won't be modified after parsing), they can be safely shared
-//
-// 总结：
-// 1. Field 对象在创建后是不可变的
-// 2. 所有操作都是只读的
-// 3. 多个 Fields 可以安全地共享 Field 对象
-// 4. 浅复制可以提高性能并减少内存使用
-// 5. 不可变性保证了并发安全
-//
-// Summary:
-// 1. Field objects are immutable after creation
-// 2. All operations are read-only
-// 3. Multiple Fields can safely share Field objects
-// 4. Shallow copying improves performance and reduces memory usage
-// 5. Immutability ensures thread safety
-func (f Fields) Clone() Fields {
-	if f == nil {
-		return nil
-	}
-	// 直接复制切片，共享底层的 Field 对象
-	// Copy the slice directly, sharing the underlying Field objects
-	newFields := make(Fields, len(f))
-	copy(newFields, f)
-	return newFields
 }
 
 // unpackStruct 处理结构体类型的解包
