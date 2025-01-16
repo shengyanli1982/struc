@@ -194,6 +194,78 @@ func parseStructField(structField reflect.StructField) (fieldDesc *Field, fieldT
 	return
 }
 
+// handleSizeofTag 处理字段的 sizeof 标签
+// 返回错误如果引用的字段不存在
+//
+// handleSizeofTag handles the sizeof tag of a field
+// Returns error if the referenced field does not exist
+func handleSizeofTag(fieldDesc *Field, fieldTag *strucTag, structType reflect.Type, field reflect.StructField, sizeofMap map[string][]int) error {
+	if fieldTag.Sizeof != "" {
+		targetField, ok := structType.FieldByName(fieldTag.Sizeof)
+		if !ok {
+			return fmt.Errorf("struc: `sizeof=%s` field does not exist", fieldTag.Sizeof)
+		}
+		fieldDesc.Sizeof = targetField.Index
+		sizeofMap[fieldTag.Sizeof] = field.Index
+	}
+	return nil
+}
+
+// handleSizefromTag 处理字段的 sizefrom 标签
+// 返回错误如果引用的字段不存在
+//
+// handleSizefromTag handles the sizefrom tag of a field
+// Returns error if the referenced field does not exist
+func handleSizefromTag(fieldDesc *Field, fieldTag *strucTag, structType reflect.Type, field reflect.StructField, sizeofMap map[string][]int) error {
+	if sizefrom, ok := sizeofMap[field.Name]; ok {
+		fieldDesc.Sizefrom = sizefrom
+	}
+	if fieldTag.Sizefrom != "" {
+		sourceField, ok := structType.FieldByName(fieldTag.Sizefrom)
+		if !ok {
+			return fmt.Errorf("struc: `sizefrom=%s` field does not exist", fieldTag.Sizefrom)
+		}
+		fieldDesc.Sizefrom = sourceField.Index
+	}
+	return nil
+}
+
+// handleNestedStruct 处理嵌套结构体字段
+// 递归解析嵌套结构体的字段
+//
+// handleNestedStruct handles nested struct fields
+// Recursively parses fields of nested structs
+func handleNestedStruct(fieldDesc *Field, field reflect.StructField) error {
+	if fieldDesc.Type == Struct {
+		fieldType := field.Type
+		if fieldDesc.IsPointer {
+			fieldType = fieldType.Elem()
+		}
+		if fieldDesc.IsSlice {
+			fieldType = fieldType.Elem()
+		}
+		tempValue := reflect.New(fieldType)
+		nestedFields, err := parseFields(tempValue.Elem())
+		if err != nil {
+			return err
+		}
+		fieldDesc.NestFields = nestedFields
+	}
+	return nil
+}
+
+// validateSliceLength 验证切片长度
+// 确保动态长度切片有对应的长度来源字段
+//
+// validateSliceLength validates slice length
+// Ensures dynamic length slices have corresponding length source fields
+func validateSliceLength(fieldDesc *Field, field reflect.StructField) error {
+	if fieldDesc.Length == -1 && fieldDesc.Sizefrom == nil {
+		return fmt.Errorf("struc: field `%s` is a slice with no length or sizeof field", field.Name)
+	}
+	return nil
+}
+
 // parseFieldsLocked 在加锁状态下解析结构体的所有字段
 // 此函数处理嵌套结构体、数组和切片等复杂类型
 //
@@ -201,103 +273,57 @@ func parseStructField(structField reflect.StructField) (fieldDesc *Field, fieldT
 // This function handles complex types like nested structs, arrays and slices
 func parseFieldsLocked(structValue reflect.Value) (Fields, error) {
 	// 解引用指针，直到获取到非指针类型
-	// Dereference pointers until we get a non-pointer type
 	for structValue.Kind() == reflect.Ptr {
 		structValue = structValue.Elem()
 	}
 	structType := structValue.Type()
 
 	// 检查结构体是否有字段
-	// Check if the struct has any fields
 	if structValue.NumField() < 1 {
 		return nil, errors.New("struc: Struct has no fields.")
 	}
 
 	// 创建大小引用映射和字段切片
-	// Create size reference map and fields slice
 	sizeofMap := make(map[string][]int)
 	fields := make(Fields, structValue.NumField())
 
 	// 遍历所有字段
-	// Iterate through all fields
 	for i := 0; i < structType.NumField(); i++ {
 		field := structType.Field(i)
+
 		// 解析字段和标签
-		// Parse field and tag
 		fieldDesc, fieldTag, err := parseStructField(field)
 		if err != nil {
-			// 发生错误时释放已创建的字段
-			// Release created fields when error occurs
 			releaseFields(fields)
 			return nil, err
 		}
-		if fieldTag.Skip {
-			continue // 跳过标记为 skip 的字段 / Skip fields marked with skip
-		}
-		if !structValue.Field(i).CanSet() {
-			continue // 跳过不可设置的字段 / Skip fields that cannot be set
+
+		// 跳过不需要处理的字段
+		if fieldTag.Skip || !structValue.Field(i).CanSet() {
+			continue
 		}
 
 		fieldDesc.Index = i
 
-		// 处理 sizeof 标签
-		// Handle sizeof tag
-		if fieldTag.Sizeof != "" {
-			targetField, ok := structType.FieldByName(fieldTag.Sizeof)
-			if !ok {
-				// 发生错误时释放已创建的字段
-				// Release created fields when error occurs
-				releaseFields(fields)
-				return nil, fmt.Errorf("struc: `sizeof=%s` field does not exist", fieldTag.Sizeof)
-			}
-			fieldDesc.Sizeof = targetField.Index
-			sizeofMap[fieldTag.Sizeof] = field.Index
-		}
-
-		// 处理 sizefrom 标签
-		// Handle sizefrom tag
-		if sizefrom, ok := sizeofMap[field.Name]; ok {
-			fieldDesc.Sizefrom = sizefrom
-		}
-		if fieldTag.Sizefrom != "" {
-			sourceField, ok := structType.FieldByName(fieldTag.Sizefrom)
-			if !ok {
-				// 发生错误时释放已创建的字段
-				// Release created fields when error occurs
-				releaseFields(fields)
-				return nil, fmt.Errorf("struc: `sizefrom=%s` field does not exist", fieldTag.Sizefrom)
-			}
-			fieldDesc.Sizefrom = sourceField.Index
-		}
-
-		// 验证切片长度
-		// Validate slice length
-		if fieldDesc.Length == -1 && fieldDesc.Sizefrom == nil {
-			// 发生错误时释放已创建的字段
-			// Release created fields when error occurs
+		// 处理各种标签和验证
+		if err := handleSizeofTag(fieldDesc, fieldTag, structType, field, sizeofMap); err != nil {
 			releaseFields(fields)
-			return nil, fmt.Errorf("struc: field `%s` is a slice with no length or sizeof field", field.Name)
+			return nil, err
 		}
 
-		// 递归处理嵌套结构体
-		// Recursively handle nested structs
-		if fieldDesc.Type == Struct {
-			fieldType := field.Type
-			if fieldDesc.IsPointer {
-				fieldType = fieldType.Elem()
-			}
-			if fieldDesc.IsSlice {
-				fieldType = fieldType.Elem()
-			}
-			tempValue := reflect.New(fieldType)
-			nestedFields, err := parseFields(tempValue.Elem())
-			if err != nil {
-				// 发生错误时释放已创建的字段
-				// Release created fields when error occurs
-				releaseFields(fields)
-				return nil, err
-			}
-			fieldDesc.NestFields = nestedFields
+		if err := handleSizefromTag(fieldDesc, fieldTag, structType, field, sizeofMap); err != nil {
+			releaseFields(fields)
+			return nil, err
+		}
+
+		if err := validateSliceLength(fieldDesc, field); err != nil {
+			releaseFields(fields)
+			return nil, err
+		}
+
+		if err := handleNestedStruct(fieldDesc, field); err != nil {
+			releaseFields(fields)
+			return nil, err
 		}
 
 		fields[i] = fieldDesc
@@ -314,19 +340,14 @@ var (
 	// parsedStructFieldCache stores parsed fields for each struct type
 	// Uses sync.Map to ensure thread safety
 	parsedStructFieldCache = sync.Map{}
-
-	// structParsingMutex 防止同一类型的并发解析
-	// 避免重复解析和资源浪费
-	//
-	// structParsingMutex prevents concurrent parsing of the same type
-	// Avoids duplicate parsing and resource waste
-	structParsingMutex sync.Mutex
 )
 
 // fieldCacheLookup 查找类型的缓存字段
-// 如果找到则返回缓存的字段，否则返回 nil
+// 使用 sync.Map 进行并发安全的缓存查找
+// 如果找到缓存的字段则返回，否则返回 nil
 //
 // fieldCacheLookup looks up cached fields for a type
+// Uses sync.Map for thread-safe cache lookup
 // Returns cached fields if found, nil otherwise
 func fieldCacheLookup(structType reflect.Type) Fields {
 	if cached, ok := parsedStructFieldCache.Load(structType); ok {
@@ -336,10 +357,14 @@ func fieldCacheLookup(structType reflect.Type) Fields {
 }
 
 // parseFields 解析结构体的所有字段
-// 支持缓存和并发安全的字段解析
+// 首先尝试从缓存中获取已解析的字段
+// 如果缓存未命中，则进行解析并将结果存入缓存
+// 返回字段切片和可能的错误
 //
 // parseFields parses all fields of a struct
-// Supports cached and thread-safe field parsing
+// First tries to get parsed fields from cache
+// If cache miss, performs parsing and stores result in cache
+// Returns slice of fields and possible error
 func parseFields(structValue reflect.Value) (Fields, error) {
 	// 从缓存中查找
 	// Look up in cache
@@ -363,6 +388,3 @@ func parseFields(structValue reflect.Value) (Fields, error) {
 
 	return fields, nil
 }
-
-// String returns a string representation of the field.
-// String 返回字段的字符串表示。

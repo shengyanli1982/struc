@@ -2,11 +2,13 @@
 
 # struc v2
 
-[![Build Status](https://travis-ci.org/lunixbochs/struc.svg?branch=master)](https://travis-ci.org/lunixbochs/struc)
-[![GoDoc](https://godoc.org/github.com/lunixbochs/struc?status.svg)](https://godoc.org/github.com/lunixbochs/struc)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lunixbochs/struc)](https://goreportcard.com/report/github.com/lunixbochs/struc)
+[![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/struc/v2)](https://goreportcard.com/report/github.com/shengyanli1982/struc/v2)
+[![Build Status](https://github.com/shengyanli1982/struc/v2/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/struc/v2/actions)
+[![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/struc/v2.svg)](https://pkg.go.dev/github.com/shengyanli1982/struc/v2)
 
 Struc v2 是一个 Go 语言库，用于使用 C 风格的结构体定义来打包和解包二进制数据。它为 `encoding/binary` 提供了一个更便捷的替代方案，无需编写大量的样板代码。
+
+本项目兼容 "github.com/lunixbochs/struc" 的接口调用。
 
 [查看 struc 与 encoding/binary 的对比](https://bochs.info/p/cxvm9)
 

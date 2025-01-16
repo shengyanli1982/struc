@@ -114,44 +114,44 @@ var testArraySliceBytes = []byte{
 var testArrayExample = &ExampleArray{
 	16,
 	[16]ExampleStructWithin{
-		ExampleStructWithin{1},
-		ExampleStructWithin{2},
-		ExampleStructWithin{3},
-		ExampleStructWithin{4},
-		ExampleStructWithin{5},
-		ExampleStructWithin{6},
-		ExampleStructWithin{7},
-		ExampleStructWithin{8},
-		ExampleStructWithin{9},
-		ExampleStructWithin{10},
-		ExampleStructWithin{11},
-		ExampleStructWithin{12},
-		ExampleStructWithin{13},
-		ExampleStructWithin{14},
-		ExampleStructWithin{15},
-		ExampleStructWithin{16},
+		{1},
+		{2},
+		{3},
+		{4},
+		{5},
+		{6},
+		{7},
+		{8},
+		{9},
+		{10},
+		{11},
+		{12},
+		{13},
+		{14},
+		{15},
+		{16},
 	},
 }
 
 var testSliceExample = &ExampleSlice{
 	16,
 	[]ExampleStructWithin{
-		ExampleStructWithin{1},
-		ExampleStructWithin{2},
-		ExampleStructWithin{3},
-		ExampleStructWithin{4},
-		ExampleStructWithin{5},
-		ExampleStructWithin{6},
-		ExampleStructWithin{7},
-		ExampleStructWithin{8},
-		ExampleStructWithin{9},
-		ExampleStructWithin{10},
-		ExampleStructWithin{11},
-		ExampleStructWithin{12},
-		ExampleStructWithin{13},
-		ExampleStructWithin{14},
-		ExampleStructWithin{15},
-		ExampleStructWithin{16},
+		{1},
+		{2},
+		{3},
+		{4},
+		{5},
+		{6},
+		{7},
+		{8},
+		{9},
+		{10},
+		{11},
+		{12},
+		{13},
+		{14},
+		{15},
+		{16},
 	},
 }
 
@@ -268,11 +268,11 @@ type ExampleEndian struct {
 func TestEndianSwap(t *testing.T) {
 	var buf bytes.Buffer
 	big := &ExampleEndian{1}
-	if err := PackWithOrder(&buf, big, binary.BigEndian); err != nil {
+	if err := PackWithOptions(&buf, big, &Options{Order: binary.BigEndian}); err != nil {
 		t.Fatal(err)
 	}
 	little := &ExampleEndian{}
-	if err := UnpackWithOrder(&buf, little, binary.LittleEndian); err != nil {
+	if err := UnpackWithOptions(&buf, little, &Options{Order: binary.LittleEndian}); err != nil {
 		t.Fatal(err)
 	}
 	if little.T != 256 {

@@ -218,10 +218,10 @@ func (f *Field) packIntegerValue(buffer []byte, fieldValue reflect.Value, resolv
 }
 
 // packFloat 打包浮点数值到缓冲区
-// 支持 32 位和 64 位浮点数
+// 将浮点数转换为二进制格式并写入缓冲区
 //
 // packFloat packs a float value into the buffer
-// Supports both 32-bit and 64-bit floating point numbers
+// Converts float to binary format and writes to buffer
 func (f *Field) packFloat(buffer []byte, fieldValue reflect.Value, resolvedType Type, byteOrder binary.ByteOrder) (int, error) {
 	floatValue := fieldValue.Float()
 	valueSize := resolvedType.Size()
@@ -574,10 +574,12 @@ func (f *Field) writeInteger(buffer []byte, intValue uint64, resolvedType Type, 
 }
 
 // writeFloat 将浮点数值写入缓冲区
-// 支持 32 位和 64 位浮点数的写入
+// 根据类型（Float32/Float64）将浮点数转换为对应的二进制格式
+// 使用指定的字节序写入缓冲区
 //
 // writeFloat writes a float value to the buffer
-// Supports writing of both 32-bit and 64-bit floating point numbers
+// Converts float to binary format based on type (Float32/Float64)
+// Writes to buffer using specified byte order
 func (f *Field) writeFloat(buffer []byte, floatValue float64, resolvedType Type, byteOrder binary.ByteOrder) error {
 	switch resolvedType {
 	case Float32:
