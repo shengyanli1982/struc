@@ -135,6 +135,13 @@ func unsafePutFloat32(buffer []byte, value float32, byteOrder binary.ByteOrder) 
 }
 
 // unsafeMoveSlice 使用 typedmemmove 移动切片数据
+// 直接操作切片的底层数据，避免内存拷贝
 func unsafeMoveSlice(dst, src reflect.Value) {
-	typedmemmove(unsafe.Pointer(dst.UnsafeAddr()), unsafe.Pointer(src.UnsafeAddr()), uintptr(dst.Type().Size()))
+	dstHeader := (*unsafeSliceHeader)(unsafe.Pointer(dst.UnsafeAddr()))
+	srcHeader := (*unsafeSliceHeader)(unsafe.Pointer(src.UnsafeAddr()))
+
+	// 直接设置切片的底层指针和长度
+	dstHeader.Data = srcHeader.Data
+	dstHeader.Len = srcHeader.Len
+	dstHeader.Cap = srcHeader.Len // 容量设置为长度，避免越界访问
 }

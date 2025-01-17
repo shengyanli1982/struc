@@ -408,20 +408,17 @@ func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length
 
 	// 创建或调整切片大小
 	if fieldValue.Cap() < length {
+		// 只在容量不足时创建新切片
 		fieldValue.Set(reflect.MakeSlice(fieldValue.Type(), length, length))
 	} else if fieldValue.Len() < length {
+		// 如果容量足够但长度不够，只调整长度
 		fieldValue.Set(fieldValue.Slice(0, length))
 	}
 
 	// 如果是基本类型且字节序匹配，可以直接使用 unsafeMoveSlice
 	if resolvedType.IsBasicType() && (byteOrder == nil || byteOrder == binary.LittleEndian) {
-		// 创建一个临时切片，包含所有数据
-		tempSlice := reflect.New(fieldValue.Type()).Elem()
-		tempSlice.Set(reflect.MakeSlice(fieldValue.Type(), length, length))
-
-		// 使用 unsafeMoveSlice 一次性移动所有数据
-		unsafeMoveSlice(tempSlice, reflect.ValueOf(buffer))
-		fieldValue.Set(tempSlice)
+		// 直接使用 unsafeMoveSlice，避免创建临时切片
+		unsafeMoveSlice(fieldValue, reflect.ValueOf(buffer))
 		return nil
 	}
 
