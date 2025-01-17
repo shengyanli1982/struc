@@ -133,12 +133,8 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 			sizeofLength := structValue.FieldByIndex(field.Sizeof).Len()
 			switch field.kind {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				// 创建新的整数值以避免修改原结构体
-				// Create new integer value to avoid modifying original struct
-				fieldValue = reflect.New(fieldValue.Type()).Elem()
 				fieldValue.SetInt(int64(sizeofLength))
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				fieldValue = reflect.New(fieldValue.Type()).Elem()
 				fieldValue.SetUint(uint64(sizeofLength))
 			default:
 				panic(fmt.Sprintf("sizeof field is not int or uint type: %s, %s", field.Name, fieldValue.Type()))
