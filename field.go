@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"reflect"
 )
 
@@ -443,89 +442,21 @@ func (f *Field) unpackSingleValue(buffer []byte, fieldValue reflect.Value, lengt
 	case Struct:
 		return f.NestFields.Unpack(bytes.NewReader(buffer), fieldValue, options)
 	case Float32, Float64:
-		// 浮点数类型特殊处理
-		if f.kind != reflect.Float32 && f.kind != reflect.Float64 {
-			return fmt.Errorf("cannot unpack %v into field %s of type %s", resolvedType, f.Name, f.kind)
+		if err := f.unpackFloat(buffer, fieldValue, resolvedType, byteOrder); err != nil {
+			return fmt.Errorf("failed to unpack float: %w", err)
 		}
-		dataSize := resolvedType.Size()
-		if len(buffer) < dataSize {
-			return fmt.Errorf("buffer too short: need %d bytes, got %d", dataSize, len(buffer))
-		}
-		var floatValue float64
-		switch resolvedType {
-		case Float32:
-			floatValue = float64(math.Float32frombits(byteOrder.Uint32(buffer)))
-		case Float64:
-			floatValue = math.Float64frombits(byteOrder.Uint64(buffer))
-		}
-		fieldValue.SetFloat(floatValue)
 		return nil
 	case Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
-		// 整数类型处理
-		dataSize := resolvedType.Size()
-		if len(buffer) < dataSize {
-			return fmt.Errorf("buffer too short: need %d bytes, got %d", dataSize, len(buffer))
-		}
-		var intValue uint64
-		switch dataSize {
-		case 1:
-			if resolvedType == Int8 {
-				intValue = uint64(int64(int8(buffer[0])))
-			} else {
-				intValue = uint64(buffer[0])
-			}
-		case 2:
-			if resolvedType == Int16 {
-				intValue = uint64(int64(int16(byteOrder.Uint16(buffer))))
-			} else {
-				intValue = uint64(byteOrder.Uint16(buffer))
-			}
-		case 4:
-			if resolvedType == Int32 {
-				intValue = uint64(int64(int32(byteOrder.Uint32(buffer))))
-			} else {
-				intValue = uint64(byteOrder.Uint32(buffer))
-			}
-		case 8:
-			if resolvedType == Int64 {
-				intValue = uint64(int64(byteOrder.Uint64(buffer)))
-			} else {
-				intValue = byteOrder.Uint64(buffer)
-			}
-		}
-		switch f.kind {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			fieldValue.SetInt(int64(intValue))
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			fieldValue.SetUint(intValue)
-		default:
-			return fmt.Errorf("cannot unpack %v into field %s of type %s", resolvedType, f.Name, f.kind)
+		if err := f.unpackIntegerValue(buffer, fieldValue, resolvedType, byteOrder); err != nil {
+			return fmt.Errorf("failed to unpack integer: %w", err)
 		}
 		return nil
 	case Bool:
-		// 布尔类型特殊处理
-		// 支持解包到 bool 或整数类型
-		switch f.kind {
-		case reflect.Bool:
-			fieldValue.SetBool(buffer[0] != 0)
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			if buffer[0] != 0 {
-				fieldValue.SetInt(1)
-			} else {
-				fieldValue.SetInt(0)
-			}
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			if buffer[0] != 0 {
-				fieldValue.SetUint(1)
-			} else {
-				fieldValue.SetUint(0)
-			}
-		default:
-			return fmt.Errorf("cannot unpack bool into field %s of type %s", f.Name, f.kind)
+		if err := f.unpackIntegerValue(buffer, fieldValue, resolvedType, byteOrder); err != nil {
+			return fmt.Errorf("failed to unpack bool: %w", err)
 		}
 		return nil
 	case String:
-		// 字符串类型使用 unsafe 转换
 		if f.kind != reflect.String {
 			return fmt.Errorf("cannot unpack string into field %s of type %s", f.Name, f.kind)
 		}
@@ -551,9 +482,9 @@ func (f *Field) unpackFloat(buffer []byte, fieldValue reflect.Value, resolvedTyp
 	var floatValue float64
 	switch resolvedType {
 	case Float32:
-		floatValue = float64(math.Float32frombits(byteOrder.Uint32(buffer)))
+		floatValue = float64(unsafeGetFloat32(buffer, byteOrder))
 	case Float64:
-		floatValue = math.Float64frombits(byteOrder.Uint64(buffer))
+		floatValue = unsafeGetFloat64(buffer, byteOrder)
 	}
 
 	switch f.kind {
@@ -594,19 +525,19 @@ func (f *Field) readInteger(buffer []byte, resolvedType Type, byteOrder binary.B
 	case Int8:
 		return uint64(int64(int8(buffer[0])))
 	case Int16:
-		return uint64(int64(int16(byteOrder.Uint16(buffer))))
+		return uint64(int64(int16(unsafeGetUint16(buffer, byteOrder))))
 	case Int32:
-		return uint64(int64(int32(byteOrder.Uint32(buffer))))
+		return uint64(int64(int32(unsafeGetUint32(buffer, byteOrder))))
 	case Int64:
-		return uint64(int64(byteOrder.Uint64(buffer)))
+		return uint64(int64(unsafeGetUint64(buffer, byteOrder)))
 	case Bool, Uint8:
 		return uint64(buffer[0])
 	case Uint16:
-		return uint64(byteOrder.Uint16(buffer))
+		return uint64(unsafeGetUint16(buffer, byteOrder))
 	case Uint32:
-		return uint64(byteOrder.Uint32(buffer))
+		return uint64(unsafeGetUint32(buffer, byteOrder))
 	case Uint64:
-		return uint64(byteOrder.Uint64(buffer))
+		return unsafeGetUint64(buffer, byteOrder)
 	default:
 		return 0
 	}
@@ -647,11 +578,11 @@ func (f *Field) writeInteger(buffer []byte, intValue uint64, resolvedType Type, 
 	case Int8, Uint8:
 		buffer[0] = byte(intValue)
 	case Int16, Uint16:
-		byteOrder.PutUint16(buffer, uint16(intValue))
+		unsafePutUint16(buffer, uint16(intValue), byteOrder)
 	case Int32, Uint32:
-		byteOrder.PutUint32(buffer, uint32(intValue))
+		unsafePutUint32(buffer, uint32(intValue), byteOrder)
 	case Int64, Uint64:
-		byteOrder.PutUint64(buffer, intValue)
+		unsafePutUint64(buffer, intValue, byteOrder)
 	default:
 		return fmt.Errorf("unsupported integer type: %v", resolvedType)
 	}
@@ -668,9 +599,9 @@ func (f *Field) writeInteger(buffer []byte, intValue uint64, resolvedType Type, 
 func (f *Field) writeFloat(buffer []byte, floatValue float64, resolvedType Type, byteOrder binary.ByteOrder) error {
 	switch resolvedType {
 	case Float32:
-		byteOrder.PutUint32(buffer, math.Float32bits(float32(floatValue)))
+		unsafePutFloat32(buffer, float32(floatValue), byteOrder)
 	case Float64:
-		byteOrder.PutUint64(buffer, math.Float64bits(floatValue))
+		unsafePutFloat64(buffer, floatValue, byteOrder)
 	default:
 		return fmt.Errorf("unsupported float type: %v", resolvedType)
 	}
