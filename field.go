@@ -164,14 +164,24 @@ func (f *Field) packSingleValue(buffer []byte, fieldValue reflect.Value, length 
 	resolvedType := f.Type.Resolve(options)
 	switch resolvedType {
 	case Struct:
+		// 处理结构体类型
+		// Handle struct type
 		return f.NestFields.Pack(buffer, fieldValue, options)
 	case Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
+		// 处理整数和布尔类型
+		// Handle integer and boolean types
 		return f.packIntegerValue(buffer, fieldValue, resolvedType, byteOrder)
 	case Float32, Float64:
+		// 处理浮点数类型
+		// Handle floating point types
 		return f.packFloat(buffer, fieldValue, resolvedType, byteOrder)
 	case String:
+		// 处理字符串类型
+		// Handle string type
 		return f.packString(buffer, fieldValue)
 	case CustomType:
+		// 处理自定义类型
+		// Handle custom type
 		return f.packCustom(buffer, fieldValue, options)
 	default:
 		return 0, fmt.Errorf("unsupported type for packing: %v", resolvedType)
@@ -333,10 +343,13 @@ func (f *Field) packGenericSlice(buffer []byte, fieldValue reflect.Value, dataLe
 	totalSize := targetLength * elementSize
 
 	// 对基本类型进行优化处理
+	// Optimize handling for basic types
 	if resolvedType.IsBasicType() && !f.IsArray {
 		// 如果是小端序或没有指定字节序，可以直接复制
+		// For little-endian or unspecified byte order, direct copy is possible
 		if byteOrder == nil || byteOrder == binary.LittleEndian {
 			// 复制实际数据
+			// Copy actual data
 			if dataLength > 0 {
 				typedmemmove(
 					unsafe.Pointer(&buffer[0]),
@@ -345,6 +358,7 @@ func (f *Field) packGenericSlice(buffer []byte, fieldValue reflect.Value, dataLe
 				)
 			}
 			// 如果需要填充，使用 memclr
+			// If padding is needed, use memclr
 			if dataLength < targetLength {
 				memclr(buffer[dataLength*elementSize : totalSize])
 			}
@@ -352,6 +366,7 @@ func (f *Field) packGenericSlice(buffer []byte, fieldValue reflect.Value, dataLe
 		}
 
 		// 对于大端序的基本类型，需要逐个处理字节序
+		// For big-endian basic types, process byte order individually
 		for i := 0; i < targetLength; i++ {
 			pos := i * elementSize
 			var value uint64
@@ -367,6 +382,7 @@ func (f *Field) packGenericSlice(buffer []byte, fieldValue reflect.Value, dataLe
 	}
 
 	// 对于复杂类型（结构体、自定义类型等），仍然需要逐个处理
+	// For complex types (structs, custom types, etc.), process individually
 	position := 0
 	var zeroValue reflect.Value
 	if dataLength < targetLength {
@@ -482,32 +498,44 @@ func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length
 // Chooses appropriate unpacking method based on type
 func (f *Field) unpackSingleValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
 	// 获取字节序并处理指针类型
+	// Get byte order and handle pointer type
 	byteOrder := f.determineByteOrder(options)
 	if f.IsPointer {
 		fieldValue = fieldValue.Elem()
 	}
 
 	// 解析类型并根据类型选择相应的解包方法
+	// Resolve type and choose appropriate unpacking method
 	resolvedType := f.Type.Resolve(options)
 	switch resolvedType {
 	case Struct:
+		// 处理结构体类型
+		// Handle struct type
 		return f.NestFields.Unpack(bytes.NewReader(buffer), fieldValue, options)
 	case Float32, Float64:
+		// 处理浮点数类型
+		// Handle floating point types
 		if err := f.unpackFloat(buffer, fieldValue, resolvedType, byteOrder); err != nil {
 			return fmt.Errorf("failed to unpack float: %w", err)
 		}
 		return nil
 	case Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
+		// 处理整数类型
+		// Handle integer types
 		if err := f.unpackIntegerValue(buffer, fieldValue, resolvedType, byteOrder); err != nil {
 			return fmt.Errorf("failed to unpack integer: %w", err)
 		}
 		return nil
 	case Bool:
+		// 处理布尔类型
+		// Handle boolean type
 		if err := f.unpackIntegerValue(buffer, fieldValue, resolvedType, byteOrder); err != nil {
 			return fmt.Errorf("failed to unpack bool: %w", err)
 		}
 		return nil
 	case String:
+		// 处理字符串类型
+		// Handle string type
 		if f.kind != reflect.String {
 			return fmt.Errorf("cannot unpack string into field %s of type %s", f.Name, f.kind)
 		}
@@ -515,6 +543,8 @@ func (f *Field) unpackSingleValue(buffer []byte, fieldValue reflect.Value, lengt
 		fieldValue.SetString(str)
 		return nil
 	case CustomType:
+		// 处理自定义类型
+		// Handle custom type
 		if customType, ok := fieldValue.Addr().Interface().(Custom); ok {
 			return customType.Unpack(bytes.NewReader(buffer), length, options)
 		}

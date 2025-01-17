@@ -118,19 +118,19 @@ goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
 cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12          3331807               359.0 ns/op           113 B/op          3 allocs/op
-BenchmarkSliceEncode-12          3027333               393.1 ns/op           114 B/op          4 allocs/op
-BenchmarkArrayDecode-12          3386366               351.4 ns/op            56 B/op          2 allocs/op
-BenchmarkSliceDecode-12          2766920               433.7 ns/op            96 B/op          4 allocs/op
-BenchmarkEncode-12               2670258               449.4 ns/op           152 B/op          4 allocs/op
-BenchmarkStdlibEncode-12         6025112               199.4 ns/op           136 B/op          3 allocs/op
-BenchmarkManualEncode-12        43021392                25.27 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               2531178               475.3 ns/op           144 B/op         11 allocs/op
-BenchmarkStdlibDecode-12         5886140               200.8 ns/op            80 B/op          3 allocs/op
-BenchmarkManualDecode-12        99566883                12.09 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12            638830              1819 ns/op             472 B/op          8 allocs/op
-BenchmarkFullDecode-12            548227              2186 ns/op             584 B/op         59 allocs/op
-BenchmarkFieldPool-12           22924825                52.52 ns/op          144 B/op          3 allocs/op
+BenchmarkArrayEncode-12          3369238               353.4 ns/op           113 B/op          3 allocs/op
+BenchmarkSliceEncode-12          3211532               370.8 ns/op           113 B/op          3 allocs/op
+BenchmarkArrayDecode-12          3399762               350.8 ns/op            56 B/op          2 allocs/op
+BenchmarkSliceDecode-12          2802247               423.2 ns/op            96 B/op          4 allocs/op
+BenchmarkEncode-12               2916241               419.9 ns/op           144 B/op          3 allocs/op
+BenchmarkStdlibEncode-12         5687577               198.9 ns/op           136 B/op          3 allocs/op
+BenchmarkManualEncode-12        59827994                24.90 ns/op           64 B/op          1 allocs/op
+BenchmarkDecode-12               2764041               433.6 ns/op           112 B/op          9 allocs/op
+BenchmarkStdlibDecode-12         5973495               199.0 ns/op            80 B/op          3 allocs/op
+BenchmarkManualDecode-12        100918117               12.01 ns/op            8 B/op          1 allocs/op
+BenchmarkFullEncode-12            736008              1752 ns/op             432 B/op          3 allocs/op
+BenchmarkFullDecode-12            596174              2261 ns/op             536 B/op         54 allocs/op
+BenchmarkFieldPool-12           18001530                56.40 ns/op          144 B/op          3 allocs/op
 ```
 
 ## Notes
