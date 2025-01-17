@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"unsafe"
 )
 
 // Field 表示结构体中的单个字段
@@ -381,7 +380,7 @@ func (f *Field) unpackPaddingOrStringValue(buffer []byte, fieldValue reflect.Val
 	if resolvedType == Pad {
 		return nil
 	}
-	fieldValue.SetString(string(buffer))
+	unsafeSetString(fieldValue, buffer, len(buffer))
 	return nil
 }
 
@@ -396,13 +395,10 @@ func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length
 	// 对字节切片和字符串类型进行优化处理
 	if !f.IsArray && resolvedType == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
 		if f.kind == reflect.String {
-			fieldValue.SetString(unsafeBytes2String(buffer[:length]))
+			unsafeSetString(fieldValue, buffer, length)
 		} else {
 			// 使用 unsafe 直接设置切片
-			sh := (*unsafeSliceHeader)(unsafe.Pointer(fieldValue.UnsafeAddr()))
-			sh.Data = uintptr(unsafe.Pointer(&buffer[0]))
-			sh.Len = length
-			sh.Cap = length
+			unsafeSetSlice(fieldValue, buffer, length)
 		}
 		return nil
 	}
