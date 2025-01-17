@@ -89,8 +89,23 @@ func (t Type) Size() int {
 		return 4
 	case Int64, Uint64, Float64:
 		return 8
+	case Struct:
+		return 0 // 结构体大小需要通过字段计算
 	default:
 		panic("Cannot resolve size of type:" + t.String())
+	}
+}
+
+// IsBasicType 判断是否为基本类型
+// 基本类型包括：整数、浮点数、布尔值
+func (t Type) IsBasicType() bool {
+	switch t {
+	case Int8, Int16, Int32, Int64,
+		Uint8, Uint16, Uint32, Uint64,
+		Float32, Float64, Bool:
+		return true
+	default:
+		return false
 	}
 }
 

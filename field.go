@@ -3,10 +3,11 @@
 package struc
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"reflect"
+	"unsafe"
 )
 
 // Field 表示结构体中的单个字段
@@ -163,14 +164,24 @@ func (f *Field) packSingleValue(buffer []byte, fieldValue reflect.Value, length 
 	resolvedType := f.Type.Resolve(options)
 	switch resolvedType {
 	case Struct:
+		// 处理结构体类型
+		// Handle struct type
 		return f.NestFields.Pack(buffer, fieldValue, options)
 	case Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
+		// 处理整数和布尔类型
+		// Handle integer and boolean types
 		return f.packIntegerValue(buffer, fieldValue, resolvedType, byteOrder)
 	case Float32, Float64:
+		// 处理浮点数类型
+		// Handle floating point types
 		return f.packFloat(buffer, fieldValue, resolvedType, byteOrder)
 	case String:
+		// 处理字符串类型
+		// Handle string type
 		return f.packString(buffer, fieldValue)
 	case CustomType:
+		// 处理自定义类型
+		// Handle custom type
 		return f.packCustom(buffer, fieldValue, options)
 	default:
 		return 0, fmt.Errorf("unsupported type for packing: %v", resolvedType)
@@ -326,6 +337,52 @@ func (f *Field) packOptimizedByteSlice(buffer []byte, fieldValue reflect.Value, 
 // packGenericSlice packs a generic slice
 // Processes slice elements one by one
 func (f *Field) packGenericSlice(buffer []byte, fieldValue reflect.Value, dataLength, targetLength int, options *Options) (int, error) {
+	resolvedType := f.Type.Resolve(options)
+	byteOrder := f.determineByteOrder(options)
+	elementSize := resolvedType.Size()
+	totalSize := targetLength * elementSize
+
+	// 对基本类型进行优化处理
+	// Optimize handling for basic types
+	if resolvedType.IsBasicType() && !f.IsArray {
+		// 如果是小端序或没有指定字节序，可以直接复制
+		// For little-endian or unspecified byte order, direct copy is possible
+		if byteOrder == nil || byteOrder == binary.LittleEndian {
+			// 复制实际数据
+			// Copy actual data
+			if dataLength > 0 {
+				typedmemmove(
+					unsafe.Pointer(&buffer[0]),
+					unsafe.Pointer(fieldValue.Pointer()),
+					uintptr(dataLength*elementSize),
+				)
+			}
+			// 如果需要填充，使用 memclr
+			// If padding is needed, use memclr
+			if dataLength < targetLength {
+				memclr(buffer[dataLength*elementSize : totalSize])
+			}
+			return totalSize, nil
+		}
+
+		// 对于大端序的基本类型，需要逐个处理字节序
+		// For big-endian basic types, process byte order individually
+		for i := 0; i < targetLength; i++ {
+			pos := i * elementSize
+			var value uint64
+			if i < dataLength {
+				elem := fieldValue.Index(i)
+				value = f.getIntegerValue(elem)
+			}
+			if err := f.writeInteger(buffer[pos:], value, resolvedType, byteOrder); err != nil {
+				return 0, fmt.Errorf("failed to pack slice element %d: %w", i, err)
+			}
+		}
+		return totalSize, nil
+	}
+
+	// 对于复杂类型（结构体、自定义类型等），仍然需要逐个处理
+	// For complex types (structs, custom types, etc.), process individually
 	position := 0
 	var zeroValue reflect.Value
 	if dataLength < targetLength {
@@ -379,46 +436,63 @@ func (f *Field) unpackPaddingOrStringValue(buffer []byte, fieldValue reflect.Val
 	if resolvedType == Pad {
 		return nil
 	}
-	fieldValue.SetString(string(buffer))
+	unsafeSetString(fieldValue, buffer, len(buffer))
 	return nil
 }
 
 // unpackSliceValue 处理切片类型的解包
-// 调整切片容量并填充数据
+// 使用 unsafe 优化切片处理，减少内存拷贝
 //
 // unpackSliceValue handles unpacking of slice types
-// Adjusts slice capacity and fills data
+// Uses unsafe to optimize slice handling, reducing memory copies
 func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
-	// 确保切片有足够的容量
-	// Ensure slice has sufficient capacity
-	if fieldValue.Cap() < length {
-		fieldValue.Set(reflect.MakeSlice(fieldValue.Type(), length, length))
-	} else if fieldValue.Len() < length {
-		fieldValue.Set(fieldValue.Slice(0, length))
-	}
-
 	resolvedType := f.Type.Resolve(options)
-	// 优化字节切片的处理
-	// Optimize byte slice handling
-	if !f.IsArray && resolvedType == Uint8 && f.defType == Uint8 {
-		copy(fieldValue.Bytes(), buffer[:length])
+	byteOrder := f.determineByteOrder(options)
+
+	// 对字节切片和字符串类型进行优化处理
+	if !f.IsArray && resolvedType == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
+		if f.kind == reflect.String {
+			unsafeSetString(fieldValue, buffer, length)
+		} else {
+			// 使用 unsafe 直接设置切片
+			unsafeSetSlice(fieldValue, buffer, length)
+		}
 		return nil
 	}
 
 	// 处理其他类型的切片
-	// Handle other slice types
 	elementSize := resolvedType.Size()
+
+	// 创建或调整切片大小
+	if fieldValue.Cap() < length {
+		// 只在容量不足时创建新切片
+		fieldValue.Set(reflect.MakeSlice(fieldValue.Type(), length, length))
+	} else if fieldValue.Len() < length {
+		// 如果容量足够但长度不够，只调整长度
+		fieldValue.Set(fieldValue.Slice(0, length))
+	}
+
+	// 如果是基本类型且字节序匹配，可以直接使用 unsafeMoveSlice
+	if resolvedType.IsBasicType() && (byteOrder == nil || byteOrder == binary.LittleEndian) {
+		// 直接使用 unsafeMoveSlice，避免创建临时切片
+		unsafeMoveSlice(fieldValue, reflect.ValueOf(buffer))
+		return nil
+	}
+
+	// 对于其他情况，逐个处理元素
 	for i := 0; i < length; i++ {
-		position := i * elementSize
-		if err := f.unpackSingleValue(buffer[position:position+elementSize], fieldValue.Index(i), 1, options); err != nil {
+		elementValue := fieldValue.Index(i)
+		pos := i * elementSize
+		if err := f.unpackSingleValue(buffer[pos:pos+elementSize], elementValue, elementSize, options); err != nil {
 			return fmt.Errorf("failed to unpack slice element %d: %w", i, err)
 		}
 	}
+
 	return nil
 }
 
 // unpackSingleValue 从缓冲区中解包单个值
-// 根据类型选择适当的解包方法
+// 根据字段类型选择适当的解包方法
 //
 // unpackSingleValue unpacks a single value from the buffer
 // Chooses appropriate unpacking method based on type
@@ -430,16 +504,53 @@ func (f *Field) unpackSingleValue(buffer []byte, fieldValue reflect.Value, lengt
 		fieldValue = fieldValue.Elem()
 	}
 
-	// 根据类型选择相应的解包方法
-	// Choose appropriate unpacking method based on type
+	// 解析类型并根据类型选择相应的解包方法
+	// Resolve type and choose appropriate unpacking method
 	resolvedType := f.Type.Resolve(options)
 	switch resolvedType {
+	case Struct:
+		// 处理结构体类型
+		// Handle struct type
+		return f.NestFields.Unpack(bytes.NewReader(buffer), fieldValue, options)
 	case Float32, Float64:
-		return f.unpackFloat(buffer, fieldValue, resolvedType, byteOrder)
-	case Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
-		return f.unpackIntegerValue(buffer, fieldValue, resolvedType, byteOrder)
+		// 处理浮点数类型
+		// Handle floating point types
+		if err := f.unpackFloat(buffer, fieldValue, resolvedType, byteOrder); err != nil {
+			return fmt.Errorf("failed to unpack float: %w", err)
+		}
+		return nil
+	case Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
+		// 处理整数类型
+		// Handle integer types
+		if err := f.unpackIntegerValue(buffer, fieldValue, resolvedType, byteOrder); err != nil {
+			return fmt.Errorf("failed to unpack integer: %w", err)
+		}
+		return nil
+	case Bool:
+		// 处理布尔类型
+		// Handle boolean type
+		if err := f.unpackIntegerValue(buffer, fieldValue, resolvedType, byteOrder); err != nil {
+			return fmt.Errorf("failed to unpack bool: %w", err)
+		}
+		return nil
+	case String:
+		// 处理字符串类型
+		// Handle string type
+		if f.kind != reflect.String {
+			return fmt.Errorf("cannot unpack string into field %s of type %s", f.Name, f.kind)
+		}
+		str := unsafeBytes2String(buffer[:length])
+		fieldValue.SetString(str)
+		return nil
+	case CustomType:
+		// 处理自定义类型
+		// Handle custom type
+		if customType, ok := fieldValue.Addr().Interface().(Custom); ok {
+			return customType.Unpack(bytes.NewReader(buffer), length, options)
+		}
+		return fmt.Errorf("failed to unpack custom type: %v", fieldValue.Type())
 	default:
-		return fmt.Errorf("no unpack handler for type: %s", resolvedType)
+		return fmt.Errorf("unsupported type for unpacking: %v", resolvedType)
 	}
 }
 
@@ -452,9 +563,9 @@ func (f *Field) unpackFloat(buffer []byte, fieldValue reflect.Value, resolvedTyp
 	var floatValue float64
 	switch resolvedType {
 	case Float32:
-		floatValue = float64(math.Float32frombits(byteOrder.Uint32(buffer)))
+		floatValue = float64(unsafeGetFloat32(buffer, byteOrder))
 	case Float64:
-		floatValue = math.Float64frombits(byteOrder.Uint64(buffer))
+		floatValue = unsafeGetFloat64(buffer, byteOrder)
 	}
 
 	switch f.kind {
@@ -495,19 +606,19 @@ func (f *Field) readInteger(buffer []byte, resolvedType Type, byteOrder binary.B
 	case Int8:
 		return uint64(int64(int8(buffer[0])))
 	case Int16:
-		return uint64(int64(int16(byteOrder.Uint16(buffer))))
+		return uint64(int64(int16(unsafeGetUint16(buffer, byteOrder))))
 	case Int32:
-		return uint64(int64(int32(byteOrder.Uint32(buffer))))
+		return uint64(int64(int32(unsafeGetUint32(buffer, byteOrder))))
 	case Int64:
-		return uint64(int64(byteOrder.Uint64(buffer)))
+		return uint64(int64(unsafeGetUint64(buffer, byteOrder)))
 	case Bool, Uint8:
 		return uint64(buffer[0])
 	case Uint16:
-		return uint64(byteOrder.Uint16(buffer))
+		return uint64(unsafeGetUint16(buffer, byteOrder))
 	case Uint32:
-		return uint64(byteOrder.Uint32(buffer))
+		return uint64(unsafeGetUint32(buffer, byteOrder))
 	case Uint64:
-		return uint64(byteOrder.Uint64(buffer))
+		return unsafeGetUint64(buffer, byteOrder)
 	default:
 		return 0
 	}
@@ -548,11 +659,11 @@ func (f *Field) writeInteger(buffer []byte, intValue uint64, resolvedType Type, 
 	case Int8, Uint8:
 		buffer[0] = byte(intValue)
 	case Int16, Uint16:
-		byteOrder.PutUint16(buffer, uint16(intValue))
+		unsafePutUint16(buffer, uint16(intValue), byteOrder)
 	case Int32, Uint32:
-		byteOrder.PutUint32(buffer, uint32(intValue))
+		unsafePutUint32(buffer, uint32(intValue), byteOrder)
 	case Int64, Uint64:
-		byteOrder.PutUint64(buffer, intValue)
+		unsafePutUint64(buffer, intValue, byteOrder)
 	default:
 		return fmt.Errorf("unsupported integer type: %v", resolvedType)
 	}
@@ -569,9 +680,9 @@ func (f *Field) writeInteger(buffer []byte, intValue uint64, resolvedType Type, 
 func (f *Field) writeFloat(buffer []byte, floatValue float64, resolvedType Type, byteOrder binary.ByteOrder) error {
 	switch resolvedType {
 	case Float32:
-		byteOrder.PutUint32(buffer, math.Float32bits(float32(floatValue)))
+		unsafePutFloat32(buffer, float32(floatValue), byteOrder)
 	case Float64:
-		byteOrder.PutUint64(buffer, math.Float64bits(floatValue))
+		unsafePutFloat64(buffer, floatValue, byteOrder)
 	default:
 		return fmt.Errorf("unsupported float type: %v", resolvedType)
 	}

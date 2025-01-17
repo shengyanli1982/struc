@@ -72,21 +72,30 @@ func (f Fields) Sizeof(structValue reflect.Value, options *Options) int {
 // sizefrom determines the length of a slice or array based on a referenced field's value
 // Supports both signed and unsigned integer types for length fields
 func (f Fields) sizefrom(structValue reflect.Value, fieldIndex []int) int {
+	// 获取长度字段的值
+	// Get the value of the length field
 	lengthField := structValue.FieldByIndex(fieldIndex)
+
+	// 根据字段类型处理不同的整数类型
+	// Handle different integer types based on field kind
 	switch lengthField.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		// 处理有符号整数类型
+		// Handle signed integer types
 		return int(lengthField.Int())
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		// 处理无符号整数类型
+		// Handle unsigned integer types
 		lengthValue := int(lengthField.Uint())
-		// 所有内置数组长度类型都是原生 int
-		// 这里防止出现异常截断
-		// all the builtin array length types are native int
-		// this guards against weird truncation
+		// 防止出现异常截断
+		// Prevent abnormal truncation
 		if lengthValue < 0 {
 			return 0
 		}
 		return lengthValue
 	default:
+		// 如果字段类型不是整数，抛出异常
+		// Throw panic if field type is not integer
 		fieldName := structValue.Type().FieldByIndex(fieldIndex).Name
 		panic(fmt.Sprintf("sizeof field %T.%s not an integer type", structValue.Interface(), fieldName))
 	}
@@ -113,8 +122,8 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 			continue
 		}
 
-		// 获取字段值
-		// Get field value
+		// 获取字段值和长度
+		// Get field value and length
 		fieldValue := structValue.Field(i)
 		fieldLength := field.Length
 
@@ -130,23 +139,24 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 		// 处理 sizeof 字段
 		// Handle sizeof fields
 		if field.Sizeof != nil {
+			// 获取引用字段的长度
+			// Get the length of referenced field
 			sizeofLength := structValue.FieldByIndex(field.Sizeof).Len()
+
+			// 根据字段类型设置长度值
+			// Set length value based on field type
 			switch field.kind {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				// 创建新的整数值以避免修改原结构体
-				// Create new integer value to avoid modifying original struct
-				fieldValue = reflect.New(fieldValue.Type()).Elem()
 				fieldValue.SetInt(int64(sizeofLength))
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				fieldValue = reflect.New(fieldValue.Type()).Elem()
 				fieldValue.SetUint(uint64(sizeofLength))
 			default:
 				panic(fmt.Sprintf("sizeof field is not int or uint type: %s, %s", field.Name, fieldValue.Type()))
 			}
 		}
 
-		// 打包字段值
-		// Pack field value
+		// 打包字段值并更新位置
+		// Pack field value and update position
 		bytesWritten, err := field.Pack(buffer[position:], fieldValue, fieldLength, options)
 		if err != nil {
 			return bytesWritten, err
@@ -177,22 +187,32 @@ func (f Fields) unpackStruct(reader io.Reader, fieldValue reflect.Value, field *
 // unpackStructSlice 处理结构体切片的解包
 // unpackStructSlice handles unpacking of struct slices
 func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, fieldLength int, isArray bool, options *Options) error {
+	// 创建切片值，如果是数组则使用原值
+	// Create slice value, use original value if it's an array
 	sliceValue := fieldValue
 	if !isArray {
 		sliceValue = reflect.MakeSlice(fieldValue.Type(), fieldLength, fieldLength)
 	}
 
+	// 遍历处理每个元素
+	// Process each element
 	for i := 0; i < fieldLength; i++ {
 		elementValue := sliceValue.Index(i)
+		// 解析元素的字段
+		// Parse fields of the element
 		fields, err := parseFields(elementValue)
 		if err != nil {
 			return err
 		}
+		// 解包元素值
+		// Unpack element value
 		if err := fields.Unpack(reader, elementValue, options); err != nil {
 			return err
 		}
 	}
 
+	// 如果不是数组，设置切片值
+	// If not array, set the slice value
 	if !isArray {
 		fieldValue.Set(sliceValue)
 	}
@@ -212,19 +232,27 @@ func (f Fields) unpackSingleStruct(reader io.Reader, fieldValue reflect.Value, o
 // unpackBasicType 处理基本类型和自定义类型的解包
 // unpackBasicType handles unpacking of basic and custom types
 func (f Fields) unpackBasicType(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options) error {
+	// 解析类型
+	// Resolve type
 	resolvedType := field.Type.Resolve(options)
 	if resolvedType == CustomType {
+		// 处理自定义类型
+		// Handle custom type
 		return fieldValue.Addr().Interface().(Custom).Unpack(reader, fieldLength, options)
 	}
 
-	// 读取数据到缓冲区
-	// Read data into buffer
+	// 计算数据大小并分配缓冲区
+	// Calculate data size and allocate buffer
 	dataSize := fieldLength * resolvedType.Size()
 	var buffer []byte
 	if dataSize < 8 {
+		// 小数据使用栈上分配
+		// Use stack allocation for small data
 		var tempBuffer [8]byte
 		buffer = tempBuffer[:dataSize]
 	} else {
+		// 大数据使用堆上分配
+		// Use heap allocation for large data
 		buffer = make([]byte, dataSize)
 	}
 
