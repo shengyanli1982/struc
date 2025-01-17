@@ -3,10 +3,12 @@
 package struc
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"reflect"
+	"unsafe"
 )
 
 // Field 表示结构体中的单个字段
@@ -384,62 +386,163 @@ func (f *Field) unpackPaddingOrStringValue(buffer []byte, fieldValue reflect.Val
 }
 
 // unpackSliceValue 处理切片类型的解包
-// 调整切片容量并填充数据
+// 使用 unsafe 优化切片处理，减少内存拷贝
 //
 // unpackSliceValue handles unpacking of slice types
-// Adjusts slice capacity and fills data
+// Uses unsafe to optimize slice handling, reducing memory copies
 func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
-	// 确保切片有足够的容量
-	// Ensure slice has sufficient capacity
+	resolvedType := f.Type.Resolve(options)
+
+	// 对字节切片和字符串类型进行优化处理
+	if !f.IsArray && resolvedType == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
+		if f.kind == reflect.String {
+			fieldValue.SetString(unsafeBytes2String(buffer[:length]))
+		} else {
+			// 使用 unsafe 直接设置切片
+			sh := (*unsafeSliceHeader)(unsafe.Pointer(fieldValue.UnsafeAddr()))
+			sh.Data = uintptr(unsafe.Pointer(&buffer[0]))
+			sh.Len = length
+			sh.Cap = length
+		}
+		return nil
+	}
+
+	// 处理其他类型的切片
+	elementSize := resolvedType.Size()
+
+	// 创建或调整切片大小
 	if fieldValue.Cap() < length {
 		fieldValue.Set(reflect.MakeSlice(fieldValue.Type(), length, length))
 	} else if fieldValue.Len() < length {
 		fieldValue.Set(fieldValue.Slice(0, length))
 	}
 
-	resolvedType := f.Type.Resolve(options)
-	// 优化字节切片的处理
-	// Optimize byte slice handling
-	if !f.IsArray && resolvedType == Uint8 && f.defType == Uint8 {
-		copy(fieldValue.Bytes(), buffer[:length])
-		return nil
-	}
-
-	// 处理其他类型的切片
-	// Handle other slice types
-	elementSize := resolvedType.Size()
+	// 使用 unsafe 批量处理切片元素
 	for i := 0; i < length; i++ {
-		position := i * elementSize
-		if err := f.unpackSingleValue(buffer[position:position+elementSize], fieldValue.Index(i), 1, options); err != nil {
+		elementValue := fieldValue.Index(i)
+		pos := i * elementSize
+		if err := f.unpackSingleValue(buffer[pos:pos+elementSize], elementValue, elementSize, options); err != nil {
 			return fmt.Errorf("failed to unpack slice element %d: %w", i, err)
 		}
 	}
+
 	return nil
 }
 
 // unpackSingleValue 从缓冲区中解包单个值
-// 根据类型选择适当的解包方法
+// 根据字段类型选择适当的解包方法
 //
 // unpackSingleValue unpacks a single value from the buffer
 // Chooses appropriate unpacking method based on type
 func (f *Field) unpackSingleValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
 	// 获取字节序并处理指针类型
-	// Get byte order and handle pointer type
 	byteOrder := f.determineByteOrder(options)
 	if f.IsPointer {
 		fieldValue = fieldValue.Elem()
 	}
 
-	// 根据类型选择相应的解包方法
-	// Choose appropriate unpacking method based on type
+	// 解析类型并根据类型选择相应的解包方法
 	resolvedType := f.Type.Resolve(options)
 	switch resolvedType {
+	case Struct:
+		return f.NestFields.Unpack(bytes.NewReader(buffer), fieldValue, options)
 	case Float32, Float64:
-		return f.unpackFloat(buffer, fieldValue, resolvedType, byteOrder)
-	case Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
-		return f.unpackIntegerValue(buffer, fieldValue, resolvedType, byteOrder)
+		// 浮点数类型特殊处理
+		if f.kind != reflect.Float32 && f.kind != reflect.Float64 {
+			return fmt.Errorf("cannot unpack %v into field %s of type %s", resolvedType, f.Name, f.kind)
+		}
+		dataSize := resolvedType.Size()
+		if len(buffer) < dataSize {
+			return fmt.Errorf("buffer too short: need %d bytes, got %d", dataSize, len(buffer))
+		}
+		var floatValue float64
+		switch resolvedType {
+		case Float32:
+			floatValue = float64(math.Float32frombits(byteOrder.Uint32(buffer)))
+		case Float64:
+			floatValue = math.Float64frombits(byteOrder.Uint64(buffer))
+		}
+		fieldValue.SetFloat(floatValue)
+		return nil
+	case Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64:
+		// 整数类型处理
+		dataSize := resolvedType.Size()
+		if len(buffer) < dataSize {
+			return fmt.Errorf("buffer too short: need %d bytes, got %d", dataSize, len(buffer))
+		}
+		var intValue uint64
+		switch dataSize {
+		case 1:
+			if resolvedType == Int8 {
+				intValue = uint64(int64(int8(buffer[0])))
+			} else {
+				intValue = uint64(buffer[0])
+			}
+		case 2:
+			if resolvedType == Int16 {
+				intValue = uint64(int64(int16(byteOrder.Uint16(buffer))))
+			} else {
+				intValue = uint64(byteOrder.Uint16(buffer))
+			}
+		case 4:
+			if resolvedType == Int32 {
+				intValue = uint64(int64(int32(byteOrder.Uint32(buffer))))
+			} else {
+				intValue = uint64(byteOrder.Uint32(buffer))
+			}
+		case 8:
+			if resolvedType == Int64 {
+				intValue = uint64(int64(byteOrder.Uint64(buffer)))
+			} else {
+				intValue = byteOrder.Uint64(buffer)
+			}
+		}
+		switch f.kind {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			fieldValue.SetInt(int64(intValue))
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			fieldValue.SetUint(intValue)
+		default:
+			return fmt.Errorf("cannot unpack %v into field %s of type %s", resolvedType, f.Name, f.kind)
+		}
+		return nil
+	case Bool:
+		// 布尔类型特殊处理
+		// 支持解包到 bool 或整数类型
+		switch f.kind {
+		case reflect.Bool:
+			fieldValue.SetBool(buffer[0] != 0)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if buffer[0] != 0 {
+				fieldValue.SetInt(1)
+			} else {
+				fieldValue.SetInt(0)
+			}
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			if buffer[0] != 0 {
+				fieldValue.SetUint(1)
+			} else {
+				fieldValue.SetUint(0)
+			}
+		default:
+			return fmt.Errorf("cannot unpack bool into field %s of type %s", f.Name, f.kind)
+		}
+		return nil
+	case String:
+		// 字符串类型使用 unsafe 转换
+		if f.kind != reflect.String {
+			return fmt.Errorf("cannot unpack string into field %s of type %s", f.Name, f.kind)
+		}
+		str := unsafeBytes2String(buffer[:length])
+		fieldValue.SetString(str)
+		return nil
+	case CustomType:
+		if customType, ok := fieldValue.Addr().Interface().(Custom); ok {
+			return customType.Unpack(bytes.NewReader(buffer), length, options)
+		}
+		return fmt.Errorf("failed to unpack custom type: %v", fieldValue.Type())
 	default:
-		return fmt.Errorf("no unpack handler for type: %s", resolvedType)
+		return fmt.Errorf("unsupported type for unpacking: %v", resolvedType)
 	}
 }
 
