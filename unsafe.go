@@ -7,10 +7,22 @@ import (
 	"unsafe"
 )
 
+//go:linkname memclrNoHeapPointers runtime.memclrNoHeapPointers
+func memclrNoHeapPointers(ptr unsafe.Pointer, n uintptr)
+
 // typedmemmove 是一个底层的内存移动函数
 //
 //go:linkname typedmemmove runtime.typedmemmove
 func typedmemmove(dst unsafe.Pointer, src unsafe.Pointer, size uintptr)
+
+// memclr 使用 runtime 的内存清零函数
+// 比循环清零更高效
+func memclr(b []byte) {
+	if len(b) == 0 {
+		return
+	}
+	memclrNoHeapPointers(unsafe.Pointer(&b[0]), uintptr(len(b)))
+}
 
 // unsafeSliceHeader 是切片的内部表示
 type unsafeSliceHeader struct {

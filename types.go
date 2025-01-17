@@ -89,6 +89,8 @@ func (t Type) Size() int {
 		return 4
 	case Int64, Uint64, Float64:
 		return 8
+	case Struct:
+		return 0 // 结构体大小需要通过字段计算
 	default:
 		panic("Cannot resolve size of type:" + t.String())
 	}

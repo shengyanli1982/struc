@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"unsafe"
 )
 
 // Field 表示结构体中的单个字段
@@ -326,6 +327,46 @@ func (f *Field) packOptimizedByteSlice(buffer []byte, fieldValue reflect.Value, 
 // packGenericSlice packs a generic slice
 // Processes slice elements one by one
 func (f *Field) packGenericSlice(buffer []byte, fieldValue reflect.Value, dataLength, targetLength int, options *Options) (int, error) {
+	resolvedType := f.Type.Resolve(options)
+	byteOrder := f.determineByteOrder(options)
+	elementSize := resolvedType.Size()
+	totalSize := targetLength * elementSize
+
+	// 对基本类型进行优化处理
+	if resolvedType.IsBasicType() && !f.IsArray {
+		// 如果是小端序或没有指定字节序，可以直接复制
+		if byteOrder == nil || byteOrder == binary.LittleEndian {
+			// 复制实际数据
+			if dataLength > 0 {
+				typedmemmove(
+					unsafe.Pointer(&buffer[0]),
+					unsafe.Pointer(fieldValue.Pointer()),
+					uintptr(dataLength*elementSize),
+				)
+			}
+			// 如果需要填充，使用 memclr
+			if dataLength < targetLength {
+				memclr(buffer[dataLength*elementSize : totalSize])
+			}
+			return totalSize, nil
+		}
+
+		// 对于大端序的基本类型，需要逐个处理字节序
+		for i := 0; i < targetLength; i++ {
+			pos := i * elementSize
+			var value uint64
+			if i < dataLength {
+				elem := fieldValue.Index(i)
+				value = f.getIntegerValue(elem)
+			}
+			if err := f.writeInteger(buffer[pos:], value, resolvedType, byteOrder); err != nil {
+				return 0, fmt.Errorf("failed to pack slice element %d: %w", i, err)
+			}
+		}
+		return totalSize, nil
+	}
+
+	// 对于复杂类型（结构体、自定义类型等），仍然需要逐个处理
 	position := 0
 	var zeroValue reflect.Value
 	if dataLength < targetLength {
