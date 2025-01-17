@@ -390,6 +390,7 @@ func (f *Field) unpackPaddingOrStringValue(buffer []byte, fieldValue reflect.Val
 // Uses unsafe to optimize slice handling, reducing memory copies
 func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
 	resolvedType := f.Type.Resolve(options)
+	byteOrder := f.determineByteOrder(options)
 
 	// 对字节切片和字符串类型进行优化处理
 	if !f.IsArray && resolvedType == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
@@ -412,7 +413,19 @@ func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length
 		fieldValue.Set(fieldValue.Slice(0, length))
 	}
 
-	// 使用 unsafe 批量处理切片元素
+	// 如果是基本类型且字节序匹配，可以直接使用 unsafeMoveSlice
+	if resolvedType.IsBasicType() && (byteOrder == nil || byteOrder == binary.LittleEndian) {
+		// 创建一个临时切片，包含所有数据
+		tempSlice := reflect.New(fieldValue.Type()).Elem()
+		tempSlice.Set(reflect.MakeSlice(fieldValue.Type(), length, length))
+
+		// 使用 unsafeMoveSlice 一次性移动所有数据
+		unsafeMoveSlice(tempSlice, reflect.ValueOf(buffer))
+		fieldValue.Set(tempSlice)
+		return nil
+	}
+
+	// 对于其他情况，逐个处理元素
 	for i := 0; i < length; i++ {
 		elementValue := fieldValue.Index(i)
 		pos := i * elementSize

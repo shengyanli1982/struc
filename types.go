@@ -94,6 +94,19 @@ func (t Type) Size() int {
 	}
 }
 
+// IsBasicType 判断是否为基本类型
+// 基本类型包括：整数、浮点数、布尔值
+func (t Type) IsBasicType() bool {
+	switch t {
+	case Int8, Int16, Int32, Int64,
+		Uint8, Uint16, Uint32, Uint64,
+		Float32, Float64, Bool:
+		return true
+	default:
+		return false
+	}
+}
+
 // typeStrToType 定义了字符串到类型的映射关系
 // typeStrToType defines the mapping from strings to types
 var typeStrToType = map[string]Type{
