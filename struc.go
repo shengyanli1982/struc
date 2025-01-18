@@ -195,10 +195,10 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 		}
 		// 处理自定义类型和基本类型
 		// Handle custom types and basic types
-		if customPacker, ok := data.(Custom); ok {
+		if customPacker, ok := data.(CustomBinaryer); ok {
 			// 使用自定义类型的打包器
 			// Use custom type packer
-			packer = customFallback{customPacker}
+			packer = customBinaryerFallback{customPacker}
 		} else {
 			// 使用默认的二进制打包器
 			// Use default binary packer

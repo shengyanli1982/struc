@@ -67,7 +67,19 @@ func main() {
 -   复合类型：字符串、字节切片、数组
 -   特殊类型：用于对齐的填充字节
 
-### 2. 智能字段标签
+### 2. 自动大小追踪
+
+-   自动管理可变大小字段的长度
+-   消除手动大小计算和追踪
+-   减少二进制协议实现中的潜在错误
+
+### 3. 性能优化
+
+-   反射缓存以提高重复操作性能
+-   高效的内存分配
+-   优化的编码/解码路径
+
+### 4. 智能字段标签
 
 ```go
 type Example struct {
@@ -78,7 +90,7 @@ type Example struct {
 }
 ```
 
-### 3. 结构体标签参考
+### 5. 结构体标签参考
 
 `struc` 标签支持多种格式和选项，用于精确控制二进制数据：
 
@@ -150,12 +162,14 @@ type ByteOrderTypes struct {
 
 ```go
 type SpecialTypes struct {
-    // 在打包/解包时跳过此字段
+    // 在打包/解包时跳过此字段（二进制中保留空间）
     Ignored  int    `struc:"skip"`
+    // 完全忽略此字段（不包含在二进制中）
+    Private  string `struc:"-"`
     // 从其他字段获取大小引用
     Data     []byte `struc:"sizefrom=Size"`
     // 自定义类型实现
-    Custom   Custom
+    YourCustomType   CustomBinaryer
 }
 ```
 
@@ -165,41 +179,109 @@ type SpecialTypes struct {
 -   `big`/`little`：字节序指定
 -   `sizeof=Field`：指定此字段追踪另一个字段的大小
 -   `sizefrom=Field`：指定此字段的大小由另一个字段追踪
--   `skip`：在打包/解包时跳过此字段
+-   `skip`：在打包/解包时跳过此字段（二进制中保留空间）
+-   `-`：完全忽略此字段（不包含在二进制中）
 -   `[N]type`：长度为 N 的固定大小类型数组
 -   `[]type`：动态大小的类型数组/切片
 
-### 4. 自动大小追踪
+#### 为什么不支持 `omitempty`？
 
--   自动管理可变大小字段的长度
--   消除手动大小计算和追踪
--   减少二进制协议实现中的潜在错误
+与 JSON 序列化可以选择性地省略字段不同，二进制序列化需要严格且固定的字节布局。以下是不支持 `omitempty` 的原因：
 
-### 5. 性能优化
+1. **固定的二进制布局**
 
--   反射缓存以提高重复操作性能
--   高效的内存分配
--   优化的编码/解码路径
+    - 二进制协议要求精确的字节定位
+    - 每个字段必须占据其预定义的位置和大小
+    - 省略字段会破坏字节对齐
+
+2. **解析依赖性**
+
+    - 二进制数据是按字节顺序解析的
+    - 如果省略字段，字节流会错位
+    - 接收端无法正确重建数据结构
+
+3. **协议稳定性**
+
+    - 二进制协议需要严格的版本控制
+    - 允许可选字段会破坏协议的稳定性
+    - 无法保证向后兼容性
+
+4. **调试复杂性**
+    - 字段省略会导致二进制数据变得不可预测
+    - 极大增加了字节流调试的难度
+    - 提高了问题排查的复杂度
+
+如果你需要标记某些字段为可选，可以考虑以下替代方案：
+
+-   使用显式的标志字段来表示有效性
+-   为可选字段使用默认值
+-   使用 `struc:"-"` 标签完全排除字段不进行序列化
 
 ## 高级用法
 
-### 自定义字节序
+### 自定义类型实现
+
+如果你需要完全控制类型的二进制序列化和反序列化，可以实现 `CustomBinaryer` 接口：
 
 ```go
-type Custom struct {
-    BigEndian    int32  `struc:"big"`    // 显式大端
-    LittleEndian int32  `struc:"little"` // 显式小端
+type CustomBinaryer interface {
+    // Pack 将数据序列化到字节切片
+    Pack(p []byte, opt *Options) (int, error)
+
+    // Unpack 从 Reader 中反序列化数据
+    Unpack(r io.Reader, length int, opt *Options) error
+
+    // Size 返回序列化后的字节大小
+    Size(opt *Options) int
+
+    // String 返回类型的字符串表示
+    String() string
 }
 ```
 
-### 固定大小数组
+例如，实现一个 3 字节整数类型：
 
 ```go
-type FixedArray struct {
-    Data [16]byte `struc:"[16]byte"` // 固定大小字节数组
-    Ints [4]int32 `struc:"[4]int32"` // 固定大小整数数组
+// 使用示例
+type Message struct {
+    Value CustomBinaryer  // 使用自定义类型
+}
+
+// Int3 是一个自定义的 3 字节整数类型
+type Int3 uint32
+
+func (i *Int3) Pack(p []byte, opt *Options) (int, error) {
+    // 将 4 字节整数转换为 3 字节
+    var tmp [4]byte
+    binary.BigEndian.PutUint32(tmp[:], uint32(*i))
+    copy(p, tmp[1:]) // 只复制后 3 字节
+    return 3, nil
+}
+
+func (i *Int3) Unpack(r io.Reader, length int, opt *Options) error {
+    var tmp [4]byte
+    if _, err := r.Read(tmp[1:]); err != nil {
+        return err
+    }
+    *i = Int3(binary.BigEndian.Uint32(tmp[:]))
+    return nil
+}
+
+func (i *Int3) Size(opt *Options) int {
+    return 3 // 固定 3 字节大小
+}
+
+func (i *Int3) String() string {
+    return strconv.FormatUint(uint64(*i), 10)
 }
 ```
+
+自定义类型的优势：
+
+-   完全控制二进制格式
+-   支持特殊的数据布局
+-   可以实现压缩或加密
+-   适合处理遗留系统的特殊格式
 
 ## 最佳实践
 
@@ -230,7 +312,7 @@ type FixedArray struct {
 
     - 解包时，库使用内部 4K 缓冲区来实现高效解包
     - 解包时，结构体中的切片/字符串字段会直接引用这些内部缓冲区
-    - 只要您的结构体字段还在引用这些缓冲区，它们就会保留在内存中
+    - 只要你的结构体字段还在引用这些缓冲区，它们就会保留在内存中
 
         ```go
         type Message struct {
@@ -269,7 +351,7 @@ type FixedArray struct {
         }
         ```
 
-    - 要释放对内部缓冲区的引用，您可以将字段设为 nil 或复制数据：
+    - 要释放对内部缓冲区的引用，你可以将字段设为 nil 或复制数据：
 
         ```go
         func processRelease() {
@@ -297,19 +379,19 @@ goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
 cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12          3203236               373.2 ns/op           137 B/op          4 allocs/op
-BenchmarkSliceEncode-12          2985786               400.9 ns/op           137 B/op          4 allocs/op
-BenchmarkArrayDecode-12          3407203               349.8 ns/op            73 B/op          2 allocs/op
-BenchmarkSliceDecode-12          2768002               433.5 ns/op           112 B/op          4 allocs/op
-BenchmarkEncode-12               2656374               462.5 ns/op           168 B/op          4 allocs/op
-BenchmarkStdlibEncode-12         6035904               206.0 ns/op           136 B/op          3 allocs/op
-BenchmarkManualEncode-12        49696231                25.64 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               2812420               421.0 ns/op           103 B/op          2 allocs/op
-BenchmarkStdlibDecode-12         5953122               195.3 ns/op            80 B/op          3 allocs/op
-BenchmarkManualDecode-12        100000000               12.21 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12           1000000              1800 ns/op             456 B/op          4 allocs/op
-BenchmarkFullDecode-12            598369              1974 ns/op             327 B/op          5 allocs/op
-BenchmarkFieldPool-12           19483657                62.86 ns/op          168 B/op          4 allocs/op
+BenchmarkArrayEncode-12          3215172               377.1 ns/op           137 B/op          4 allocs/op
+BenchmarkSliceEncode-12          3022616               395.9 ns/op           137 B/op          4 allocs/op
+BenchmarkArrayDecode-12          3407570               349.5 ns/op            73 B/op          2 allocs/op
+BenchmarkSliceDecode-12          2778577               424.7 ns/op           112 B/op          4 allocs/op
+BenchmarkEncode-12               2776862               431.2 ns/op           168 B/op          4 allocs/op
+BenchmarkStdlibEncode-12         5990055               197.5 ns/op           136 B/op          3 allocs/op
+BenchmarkManualEncode-12        59896976                24.82 ns/op           64 B/op          1 allocs/op
+BenchmarkDecode-12               2913640               404.5 ns/op           103 B/op          2 allocs/op
+BenchmarkStdlibDecode-12         5984299               195.2 ns/op            80 B/op          3 allocs/op
+BenchmarkManualDecode-12        100574584               11.95 ns/op            8 B/op          1 allocs/op
+BenchmarkFullEncode-12           1000000              1688 ns/op             456 B/op          4 allocs/op
+BenchmarkFullDecode-12            596047              1901 ns/op             327 B/op          5 allocs/op
+BenchmarkFieldPool-12           19045561                61.38 ns/op          168 B/op          4 allocs/op
 ```
 
 ## 许可证

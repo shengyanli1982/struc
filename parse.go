@@ -59,6 +59,13 @@ func parseStrucTag(fieldTag reflect.StructTag) *strucTag {
 		tagString = fieldTag.Get("struct")
 	}
 
+	// 处理 "-" 标签，表示完全忽略该字段
+	// Handle "-" tag which means completely ignore this field
+	if tagString == "-" {
+		parsedTag.Skip = true
+		return parsedTag
+	}
+
 	// 解析标签字符串中的每个选项
 	// Parse each option in the tag string
 	for _, option := range strings.Split(tagString, ",") {
@@ -143,7 +150,7 @@ func parseStructField(structField reflect.StructField) (fieldDesc *Field, fieldT
 	// 检查是否为自定义类型
 	// Check if it's a custom type
 	tempValue := reflect.New(structField.Type)
-	if _, ok := tempValue.Interface().(Custom); ok {
+	if _, ok := tempValue.Interface().(CustomBinaryer); ok {
 		fieldDesc.Type = CustomType
 		return
 	}
