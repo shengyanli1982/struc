@@ -7,12 +7,19 @@ import (
 	"sync"
 )
 
-// MaxCapSize 定义了缓冲区的最大容量限制
+// MaxBufferCapSize 定义了缓冲区的最大容量限制
 // 超过此限制的缓冲区不会被放入对象池
 //
-// MaxCapSize defines the maximum capacity limit for buffers
+// MaxBufferCapSize defines the maximum capacity limit for buffers
 // Buffers exceeding this limit will not be put into the object pool
-const MaxCapSize = 1 << 20
+const MaxBufferCapSize = 1 << 20
+
+// MaxBytesSliceSize 定义了字节切片的最大容量限制
+// 超过此限制的字节切片不会被放入对象池
+//
+// MaxBytesSliceSize defines the maximum capacity limit for byte slices
+// Byte slices exceeding this limit will not be put into the object pool
+const MaxBytesSliceSize = 4096
 
 // bufferPool 用于减少打包/解包时的内存分配
 // bufferPool is used to reduce allocations when packing/unpacking
@@ -70,7 +77,7 @@ func acquireBuffer() *bytes.Buffer {
 // releaseBuffer 将缓冲区放回对象池
 // releaseBuffer returns a buffer to the pool
 func releaseBuffer(buf *bytes.Buffer) {
-	if buf == nil || buf.Cap() > MaxCapSize {
+	if buf == nil || buf.Cap() > MaxBufferCapSize {
 		return
 	}
 
@@ -131,6 +138,25 @@ type BytesSlicePool struct {
 	mu     sync.Mutex // 互斥锁用于保护并发访问 / mutex for protecting concurrent access
 }
 
+// NewBytesSlicePool 创建一个新的 BytesSlicePool 实例
+// 初始化时，会分配一个 4096 字节的字节数组
+//
+// NewBytesSlicePool creates a new BytesSlicePool instance
+// Initializes with a 4096-byte byte array
+func NewBytesSlicePool(size int) *BytesSlicePool {
+	// 如果 size 小于等于 0 或者大于 MaxBytesSliceSize，则使用 MaxBytesSliceSize
+	// If size is less than or equal to 0 or greater than MaxBytesSliceSize, use MaxBytesSliceSize
+	if size > MaxBytesSliceSize || size <= 0 {
+		size = MaxBytesSliceSize
+	}
+
+	return &BytesSlicePool{
+		bytes:  make([]byte, size),
+		offset: 0,
+		mu:     sync.Mutex{},
+	}
+}
+
 // GetSlice 返回指定大小的字节切片
 // 如果当前块空间不足，会分配新的块并重置偏移量
 //
@@ -139,12 +165,19 @@ type BytesSlicePool struct {
 func (b *BytesSlicePool) GetSlice(size int) []byte {
 	b.mu.Lock()
 
+	// 如果请求的大小超过了最大限制，直接分配新的切片
+	// If the requested size exceeds the maximum limit, allocate a new slice directly
+	if size > MaxBytesSliceSize {
+		b.mu.Unlock()
+		return make([]byte, size)
+	}
+
 	// 检查剩余空间是否足够
 	// Check if remaining space is sufficient
 	if int(b.offset)+size > len(b.bytes) {
 		// 分配新的固定大小块（4096字节）并重置偏移量
 		// Allocate new fixed-size block (4096 bytes) and reset offset
-		b.bytes = make([]byte, 4096)
+		b.bytes = make([]byte, MaxBytesSliceSize)
 		b.offset = 0
 	}
 
