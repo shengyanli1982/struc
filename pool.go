@@ -33,15 +33,43 @@ var fieldPool = sync.Pool{
 	},
 }
 
-// getBuffer 从对象池获取缓冲区
-// getBuffer gets a buffer from the pool
-func getBuffer() *bytes.Buffer {
+// sizeofMapPool 是用于复用 sizeofMap 的对象池
+// sizeofMapPool is an object pool for reusing sizeofMap
+var sizeofMapPool = sync.Pool{
+	New: func() interface{} {
+		return make(map[string][]int)
+	},
+}
+
+// acquireSizeofMap 从对象池获取一个 sizeofMap
+// acquireSizeofMap gets a sizeofMap from the pool
+func acquireSizeofMap() map[string][]int {
+	return sizeofMapPool.Get().(map[string][]int)
+}
+
+// releaseSizeofMap 将 sizeofMap 放回对象池
+// releaseSizeofMap puts a sizeofMap back to the pool
+func releaseSizeofMap(m map[string][]int) {
+	if m == nil {
+		return
+	}
+	// 清空 map
+	// Clear the map
+	for k := range m {
+		delete(m, k)
+	}
+	sizeofMapPool.Put(m)
+}
+
+// acquireBuffer 从对象池获取缓冲区
+// acquireBuffer gets a buffer from the pool
+func acquireBuffer() *bytes.Buffer {
 	return bufferPool.Get().(*bytes.Buffer)
 }
 
-// putBuffer 将缓冲区放回对象池
-// putBuffer returns a buffer to the pool
-func putBuffer(buf *bytes.Buffer) {
+// releaseBuffer 将缓冲区放回对象池
+// releaseBuffer returns a buffer to the pool
+func releaseBuffer(buf *bytes.Buffer) {
 	if buf == nil || buf.Cap() > MaxCapSize {
 		return
 	}
@@ -90,4 +118,44 @@ func releaseFields(fields Fields) {
 	for _, f := range fields {
 		releaseField(f)
 	}
+}
+
+// BytesSlicePool 是一个用于管理共享字节切片的结构体
+// 它提供了线程安全的切片分配和重用功能
+//
+// BytesSlicePool is a structure for managing shared byte slices
+// It provides thread-safe slice allocation and reuse functionality
+type BytesSlicePool struct {
+	bytes  []byte     // 底层字节数组 / underlying byte array
+	offset int32      // 当前偏移量 / current offset position
+	mu     sync.Mutex // 互斥锁用于保护并发访问 / mutex for protecting concurrent access
+}
+
+// GetSlice 返回指定大小的字节切片
+// 如果当前块空间不足，会分配新的块并重置偏移量
+//
+// GetSlice returns a byte slice of specified size
+// If current block has insufficient space, allocates new block and resets offset
+func (b *BytesSlicePool) GetSlice(size int) []byte {
+	b.mu.Lock()
+
+	// 检查剩余空间是否足够
+	// Check if remaining space is sufficient
+	if int(b.offset)+size > len(b.bytes) {
+		// 分配新的固定大小块（4096字节）并重置偏移量
+		// Allocate new fixed-size block (4096 bytes) and reset offset
+		b.bytes = make([]byte, 4096)
+		b.offset = 0
+	}
+
+	// 从当前偏移量位置切割指定大小的切片
+	// Slice the requested size from current offset position
+	slice := b.bytes[b.offset : b.offset+int32(size)]
+
+	// 更新偏移量
+	// Update offset
+	b.offset += int32(size)
+
+	b.mu.Unlock()
+	return slice
 }

@@ -283,8 +283,11 @@ func parseFieldsLocked(structValue reflect.Value) (Fields, error) {
 		return nil, errors.New("struc: Struct has no fields.")
 	}
 
-	// 创建大小引用映射和字段切片
-	sizeofMap := make(map[string][]int)
+	// 从对象池获取 sizeofMap
+	sizeofMap := acquireSizeofMap()
+	defer releaseSizeofMap(sizeofMap)
+
+	// 这里需要创建 Fields 对象，后面会被 sync.Map 缓存
 	fields := make(Fields, structValue.NumField())
 
 	// 遍历所有字段

@@ -41,8 +41,8 @@ func (f *Field) String() string {
 		return fmt.Sprintf("{type: Pad, len: %d}", f.Length)
 	}
 
-	buffer := getBuffer()
-	defer putBuffer(buffer)
+	buffer := acquireBuffer()
+	defer releaseBuffer(buffer)
 
 	buffer.WriteString("{")
 	buffer.WriteString(fmt.Sprintf("type: %s", f.Type))
