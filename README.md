@@ -78,13 +78,104 @@ type Example struct {
 }
 ```
 
-### 3. Automatic Size Tracking
+### 3. Struct Tag Reference
+
+The `struc` tag supports various formats and options for precise binary data control:
+
+#### Basic Type Definition
+
+```go
+type BasicTypes struct {
+    Int8Val    int     `struc:"int8"`     // 8-bit integer
+    Int16Val   int     `struc:"int16"`    // 16-bit integer
+    Int32Val   int     `struc:"int32"`    // 32-bit integer
+    Int64Val   int     `struc:"int64"`    // 64-bit integer
+    UInt8Val   int     `struc:"uint8"`    // 8-bit unsigned integer
+    UInt16Val  int     `struc:"uint16"`   // 16-bit unsigned integer
+    UInt32Val  int     `struc:"uint32"`   // 32-bit unsigned integer
+    UInt64Val  int     `struc:"uint64"`   // 64-bit unsigned integer
+    BoolVal    bool    `struc:"bool"`     // Boolean value
+    Float32Val float32 `struc:"float32"`  // 32-bit float
+    Float64Val float64 `struc:"float64"`  // 64-bit float
+}
+```
+
+#### Array and Fixed-Size Fields
+
+```go
+type ArrayTypes struct {
+    // Fixed-size byte array (4 bytes)
+    ByteArray   []byte    `struc:"[4]byte"`
+    // Fixed-size integer array (5 int32 values)
+    IntArray    []int32   `struc:"[5]int32"`
+    // Padding bytes for alignment
+    Padding     []byte    `struc:"[3]pad"`
+    // Fixed-size string (treated as byte array)
+    FixedString string    `struc:"[8]byte"`
+}
+```
+
+#### Dynamic Size and References
+
+```go
+type DynamicTypes struct {
+    // Size field tracking the length of Data
+    Size     int    `struc:"int32,sizeof=Data"`
+    // Dynamic byte slice whose size is tracked by Size
+    Data     []byte
+    // Size field using uint8 to track AnotherData
+    Size2    int    `struc:"uint8,sizeof=AnotherData"`
+    // Another dynamic data field
+    AnotherData []byte
+    // Dynamic string field with size reference
+    StrSize  int    `struc:"uint16,sizeof=Text"`
+    Text     string `struc:"[]byte"`
+}
+```
+
+#### Byte Order Control
+
+```go
+type ByteOrderTypes struct {
+    // Big-endian encoded integer
+    BigInt    int32  `struc:"big"`
+    // Little-endian encoded integer
+    LittleInt int32  `struc:"little"`
+    // Default to big-endian if not specified
+    DefaultInt int32
+}
+```
+
+#### Special Options
+
+```go
+type SpecialTypes struct {
+    // Skip this field during packing/unpacking
+    Ignored  int    `struc:"skip"`
+    // Size reference from another field
+    Data     []byte `struc:"sizefrom=Size"`
+    // Custom type implementation
+    Custom   Custom
+}
+```
+
+Tag Format: `struc:"type,option1,option2"`
+
+-   `type`: The binary type (e.g., int8, uint16, [4]byte)
+-   `big`/`little`: Byte order specification
+-   `sizeof=Field`: Specify this field tracks another field's size
+-   `sizefrom=Field`: Specify this field's size is tracked by another field
+-   `skip`: Skip this field during packing/unpacking
+-   `[N]type`: Fixed-size array of type with length N
+-   `[]type`: Dynamic-size array/slice of type
+
+### 4. Automatic Size Tracking
 
 -   Automatically manages lengths of variable-sized fields
 -   Eliminates manual size calculation and tracking
 -   Reduces potential errors in binary protocol implementations
 
-### 4. Performance Optimizations
+### 5. Performance Optimizations
 
 -   Reflection caching for repeated operations
 -   Efficient memory allocation

@@ -78,13 +78,104 @@ type Example struct {
 }
 ```
 
-### 3. 自动大小追踪
+### 3. 结构体标签参考
+
+`struc` 标签支持多种格式和选项，用于精确控制二进制数据：
+
+#### 基本类型定义
+
+```go
+type BasicTypes struct {
+    Int8Val    int     `struc:"int8"`     // 8位整数
+    Int16Val   int     `struc:"int16"`    // 16位整数
+    Int32Val   int     `struc:"int32"`    // 32位整数
+    Int64Val   int     `struc:"int64"`    // 64位整数
+    UInt8Val   int     `struc:"uint8"`    // 8位无符号整数
+    UInt16Val  int     `struc:"uint16"`   // 16位无符号整数
+    UInt32Val  int     `struc:"uint32"`   // 32位无符号整数
+    UInt64Val  int     `struc:"uint64"`   // 64位无符号整数
+    BoolVal    bool    `struc:"bool"`     // 布尔值
+    Float32Val float32 `struc:"float32"`  // 32位浮点数
+    Float64Val float64 `struc:"float64"`  // 64位浮点数
+}
+```
+
+#### 数组和固定大小字段
+
+```go
+type ArrayTypes struct {
+    // 固定大小字节数组（4字节）
+    ByteArray   []byte    `struc:"[4]byte"`
+    // 固定大小整数数组（5个int32值）
+    IntArray    []int32   `struc:"[5]int32"`
+    // 用于对齐的填充字节
+    Padding     []byte    `struc:"[3]pad"`
+    // 固定大小字符串（作为字节数组处理）
+    FixedString string    `struc:"[8]byte"`
+}
+```
+
+#### 动态大小和引用
+
+```go
+type DynamicTypes struct {
+    // 追踪 Data 长度的大小字段
+    Size     int    `struc:"int32,sizeof=Data"`
+    // 大小由 Size 追踪的动态字节切片
+    Data     []byte
+    // 使用 uint8 追踪 AnotherData 的大小字段
+    Size2    int    `struc:"uint8,sizeof=AnotherData"`
+    // 另一个动态数据字段
+    AnotherData []byte
+    // 带大小引用的动态字符串字段
+    StrSize  int    `struc:"uint16,sizeof=Text"`
+    Text     string `struc:"[]byte"`
+}
+```
+
+#### 字节序控制
+
+```go
+type ByteOrderTypes struct {
+    // 大端编码整数
+    BigInt    int32  `struc:"big"`
+    // 小端编码整数
+    LittleInt int32  `struc:"little"`
+    // 未指定则默认为大端
+    DefaultInt int32
+}
+```
+
+#### 特殊选项
+
+```go
+type SpecialTypes struct {
+    // 在打包/解包时跳过此字段
+    Ignored  int    `struc:"skip"`
+    // 从其他字段获取大小引用
+    Data     []byte `struc:"sizefrom=Size"`
+    // 自定义类型实现
+    Custom   Custom
+}
+```
+
+标签格式：`struc:"type,option1,option2"`
+
+-   `type`：二进制类型（如 int8、uint16、[4]byte）
+-   `big`/`little`：字节序指定
+-   `sizeof=Field`：指定此字段追踪另一个字段的大小
+-   `sizefrom=Field`：指定此字段的大小由另一个字段追踪
+-   `skip`：在打包/解包时跳过此字段
+-   `[N]type`：长度为 N 的固定大小类型数组
+-   `[]type`：动态大小的类型数组/切片
+
+### 4. 自动大小追踪
 
 -   自动管理可变大小字段的长度
 -   消除手动大小计算和追踪
 -   减少二进制协议实现中的潜在错误
 
-### 4. 性能优化
+### 5. 性能优化
 
 -   反射缓存以提高重复操作性能
 -   高效的内存分配
