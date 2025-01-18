@@ -130,10 +130,16 @@ type FixedArray struct {
 
 4. **内存管理**
 
-    - 库使用内部 4K 缓冲区来实现高效解包
+    - 库在打包时，会根据数据大小预分配精确大小的缓冲区
+
+        ```go
+        bufferSize := packer.Sizeof(value, options)
+        buffer := make([]byte, bufferSize)
+        ```
+
+    - 解包时，库使用内部 4K 缓冲区来实现高效解包
     - 解包时，结构体中的切片/字符串字段会直接引用这些内部缓冲区
     - 只要您的结构体字段还在引用这些缓冲区，它们就会保留在内存中
-    - 内存保留示例：
 
         ```go
         type Message struct {
@@ -143,12 +149,31 @@ type FixedArray struct {
         func processRetain() {
             messages := make([]*Message, 0)
 
+            // >> 重要的是：
+            // Field 结构体只是一个元数据描述对象
+            // 它的生命周期结束与否并不影响已经通过 unsafe 操作设置的用户结构体字段
+            // 因为 unsafe 操作已经直接修改了用户结构体字段的底层指针，指向了 4K buffer
+            // >> 所以：
+            // Field 结构体的释放并不会导致 4K buffer 上的切片引用消失
+            // 只有当使用这些切片的用户结构体被 GC 时，这些引用才会消失
+            // 4K buffer 的生命周期取决于所有引用它的用户结构体的生命周期
+
             // 每个解包的消息的 Data 字段都引用内部缓冲区
             for i := 0; i < 10; i++ {
                 msg := &Message{}
+                // 解包过程中：
+                // 1. unpackBasicTypeSlicePool 提供 4K buffer
+                // 2. Field 结构体处理元数据
+                // 3. unsafe 操作将 msg.Data 指向 4K buffer 的一部分
                 struc.Unpack(reader, msg)
+                // 这时即使 Field 结构体被释放
+                // msg.Data 仍然指向 4K buffer
+                // 只有当 msg 被 GC，这个引用才会消失
                 messages = append(messages, msg)
                 // 内部缓冲区无法被 GC，因为 msg.Data 引用着它
+                // Field 结构体的生命周期与 4K buffer 的引用无关
+                // 4K buffer 的引用由用户结构体持有
+                // 只有当所有引用这个 4K buffer 的用户结构体都被 GC 时，这个 buffer 才可能被回收
             }
         }
         ```
