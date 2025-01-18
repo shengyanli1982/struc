@@ -6,11 +6,11 @@ English | [中文](./README_CN.md)
 [![Build Status](https://github.com/shengyanli1982/struc/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/struc/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/struc/v2.svg)](https://pkg.go.dev/github.com/shengyanli1982/struc/v2)
 
-A high-performance Go library for binary data serialization with C-style struct definitions, offering up to 15x performance improvement over standard approaches.
+A high-performance Go library for binary data serialization with C-style struct definitions.
 
 ## Why struc v2?
 
--   🚀 **High Performance**: Up to 15x faster than manual encoding and 8x faster than `encoding/binary`
+-   🚀 **High Performance**: Optimized binary serialization with reflection caching
 -   💡 **Simple API**: Intuitive struct tag-based configuration without boilerplate code
 -   🛡️ **Type Safety**: Strong type checking with comprehensive error handling
 -   🔄 **Flexible Encoding**: Support for both big and little endian byte orders
@@ -127,28 +127,16 @@ type FixedArray struct {
     - Reuse structs when possible
     - Consider using pools for frequently used structures
 
-## Benchmark
+## Performance Benchmarks
 
-```bash
-$ go.exe test -benchmem -run=^$ -bench . github.com/shengyanli1982/struc/v2
-goos: windows
-goarch: amd64
-pkg: github.com/shengyanli1982/struc/v2
-cpu: 12th Gen Intel(R) Core(TM) i5-12400F
+```
+$ go test -benchmem -run=^$ -bench .
 BenchmarkArrayEncode-12          3203236               373.2 ns/op           137 B/op          4 allocs/op
-BenchmarkSliceEncode-12          2985786               400.9 ns/op           137 B/op          4 allocs/op
-BenchmarkArrayDecode-12          3407203               349.8 ns/op            73 B/op          2 allocs/op
-BenchmarkSliceDecode-12          2768002               433.5 ns/op           112 B/op          4 allocs/op
-BenchmarkEncode-12               2656374               462.5 ns/op           168 B/op          4 allocs/op
 BenchmarkStdlibEncode-12         6035904               206.0 ns/op           136 B/op          3 allocs/op
 BenchmarkManualEncode-12        49696231                25.64 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               2812420               421.0 ns/op           103 B/op          2 allocs/op
-BenchmarkStdlibDecode-12         5953122               195.3 ns/op            80 B/op          3 allocs/op
-BenchmarkManualDecode-12        100000000               12.21 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12           1000000              1800 ns/op             456 B/op          4 allocs/op
-BenchmarkFullDecode-12            598369              1974 ns/op             327 B/op          5 allocs/op
-BenchmarkFieldPool-12           19483657                62.86 ns/op          168 B/op          4 allocs/op
 ```
+
+Our benchmarks provide transparent performance metrics for different encoding approaches. While reflection-based solutions typically trade some performance for flexibility and features, `struc` maintains competitive performance while offering rich functionality.
 
 ## License
 
