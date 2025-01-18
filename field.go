@@ -109,7 +109,7 @@ func (f *Field) calculateStructSize(fieldValue reflect.Value, options *Options) 
 // calculateCustomSize calculates size for custom types
 // Gets size by calling the type's Size method
 func (f *Field) calculateCustomSize(fieldValue reflect.Value, options *Options) int {
-	if customType, ok := fieldValue.Addr().Interface().(Custom); ok {
+	if customType, ok := fieldValue.Addr().Interface().(CustomBinaryer); ok {
 		return customType.Size(options)
 	}
 	return 0
@@ -252,7 +252,7 @@ func (f *Field) packString(buffer []byte, fieldValue reflect.Value) (int, error)
 // packCustom packs a custom type into the buffer
 // Implemented by calling the type's Pack method
 func (f *Field) packCustom(buffer []byte, fieldValue reflect.Value, options *Options) (int, error) {
-	if customType, ok := fieldValue.Addr().Interface().(Custom); ok {
+	if customType, ok := fieldValue.Addr().Interface().(CustomBinaryer); ok {
 		return customType.Pack(buffer, options)
 	}
 	return 0, fmt.Errorf("failed to pack custom type: %v", fieldValue.Type())
@@ -545,7 +545,7 @@ func (f *Field) unpackSingleValue(buffer []byte, fieldValue reflect.Value, lengt
 	case CustomType:
 		// 处理自定义类型
 		// Handle custom type
-		if customType, ok := fieldValue.Addr().Interface().(Custom); ok {
+		if customType, ok := fieldValue.Addr().Interface().(CustomBinaryer); ok {
 			return customType.Unpack(bytes.NewReader(buffer), length, options)
 		}
 		return fmt.Errorf("failed to unpack custom type: %v", fieldValue.Type())

@@ -5,12 +5,12 @@ import (
 	"reflect"
 )
 
-// Custom 定义了自定义类型的序列化和反序列化接口
+// CustomBinaryer 定义了自定义类型的序列化和反序列化接口
 // 实现此接口的类型可以控制自己的二进制格式
 //
-// Custom defines the interface for serialization and deserialization of custom types
+// CustomBinaryer defines the interface for serialization and deserialization of custom types
 // Types implementing this interface can control their own binary format
-type Custom interface {
+type CustomBinaryer interface {
 	// Pack 将数据打包到字节切片中
 	// 参数：
 	//   - p: 目标字节切片
@@ -66,13 +66,13 @@ type Custom interface {
 	String() string
 }
 
-// customFallback 提供了 Custom 接口的基本实现
+// customBinaryerFallback 提供了 Custom 接口的基本实现
 // 作为自定义类型序列化的回退处理器
 //
-// customFallback provides a basic implementation of the Custom interface
+// customBinaryerFallback provides a basic implementation of the Custom interface
 // Serves as a fallback handler for custom type serialization
-type customFallback struct {
-	custom Custom // 实际的自定义类型实例 / Actual custom type instance
+type customBinaryerFallback struct {
+	custom CustomBinaryer // 实际的自定义类型实例 / Actual custom type instance
 }
 
 // Pack 将自定义类型的值打包到缓冲区中
@@ -80,7 +80,7 @@ type customFallback struct {
 //
 // Pack packs a custom type value into the buffer
 // Directly calls the underlying custom type's Pack method
-func (c customFallback) Pack(buf []byte, val reflect.Value, options *Options) (int, error) {
+func (c customBinaryerFallback) Pack(buf []byte, val reflect.Value, options *Options) (int, error) {
 	// 调用自定义类型的 Pack 方法
 	// Call the custom type's Pack method
 	return c.custom.Pack(buf, options)
@@ -91,7 +91,7 @@ func (c customFallback) Pack(buf []byte, val reflect.Value, options *Options) (i
 //
 // Unpack unpacks a custom type value from the reader
 // Calls the underlying custom type's Unpack method with fixed length 1
-func (c customFallback) Unpack(reader io.Reader, val reflect.Value, options *Options) error {
+func (c customBinaryerFallback) Unpack(reader io.Reader, val reflect.Value, options *Options) error {
 	// 调用自定义类型的 Unpack 方法，长度固定为1
 	// Call the custom type's Unpack method with fixed length 1
 	return c.custom.Unpack(reader, 1, options)
@@ -102,7 +102,7 @@ func (c customFallback) Unpack(reader io.Reader, val reflect.Value, options *Opt
 //
 // Sizeof returns the size of a custom type value
 // Directly calls the underlying custom type's Size method
-func (c customFallback) Sizeof(val reflect.Value, options *Options) int {
+func (c customBinaryerFallback) Sizeof(val reflect.Value, options *Options) int {
 	// 调用自定义类型的 Size 方法
 	// Call the custom type's Size method
 	return c.custom.Size(options)
@@ -113,7 +113,7 @@ func (c customFallback) Sizeof(val reflect.Value, options *Options) int {
 //
 // String returns the string representation of the custom type
 // Directly calls the underlying custom type's String method
-func (c customFallback) String() string {
+func (c customBinaryerFallback) String() string {
 	// 调用自定义类型的 String 方法
 	// Call the custom type's String method
 	return c.custom.String()

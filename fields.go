@@ -245,7 +245,7 @@ func (f Fields) unpackBasicType(reader io.Reader, fieldValue reflect.Value, fiel
 	if resolvedType == CustomType {
 		// 处理自定义类型
 		// Handle custom type
-		return fieldValue.Addr().Interface().(Custom).Unpack(reader, fieldLength, options)
+		return fieldValue.Addr().Interface().(CustomBinaryer).Unpack(reader, fieldLength, options)
 	}
 
 	// 计算数据大小并分配缓冲区
