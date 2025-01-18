@@ -17,16 +17,6 @@ A high-performance Go library for binary data serialization with C-style struct 
 -   📦 **Rich Type Support**: Handles primitive types, arrays, slices, and custom padding
 -   🎯 **Zero Dependencies**: Pure Go implementation with no external dependencies
 
-## Performance Highlights
-
-```
-BenchmarkManualEncode:     25.64 ns/op    (Baseline)
-BenchmarkStdlibEncode:    206.0 ns/op     (8x slower)
-BenchmarkStrucEncode:     373.2 ns/op     (15x slower but with rich features)
-```
-
-Our benchmarks show that while `struc` is slightly slower than raw manual encoding (which is expected due to reflection), it provides significantly more features and convenience.
-
 ## Installation
 
 ```bash
