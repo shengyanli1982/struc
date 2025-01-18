@@ -31,10 +31,7 @@ type Float16 float64
 //
 // float16SlicePool provides a thread-safe buffer pool for Float16 operations
 // Uses BytesSlicePool to manage shared byte slices, reducing memory allocations
-var float16SlicePool = &BytesSlicePool{
-	bytes:  make([]byte, 4096),
-	offset: 0,
-}
+var float16SlicePool = NewBytesSlicePool(0)
 
 // Pack 将 Float16 值序列化为16位二进制格式
 // 二进制格式遵循 IEEE 754-2008 binary16 规范

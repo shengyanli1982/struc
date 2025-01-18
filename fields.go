@@ -15,10 +15,7 @@ import (
 //
 // unpackBasicTypeSlicePool is a globally shared byte block instance
 // Used for sharing byte slices within the unpackBasicType method to reduce memory allocations
-var unpackBasicTypeSlicePool = &BytesSlicePool{
-	bytes:  make([]byte, 4096),
-	offset: 0,
-}
+var unpackBasicTypeSlicePool = NewBytesSlicePool(0)
 
 // Fields 是字段切片类型，用于管理结构体的字段集合
 // 它提供了字段的序列化、反序列化和大小计算等功能
