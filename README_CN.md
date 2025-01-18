@@ -124,8 +124,55 @@ type FixedArray struct {
     - 在处理之前验证数据大小
 
 3. **性能优化**
+
     - 尽可能重用结构体
     - 考虑对频繁使用的结构使用对象池
+
+4. **内存管理**
+
+    - 库使用内部 4K 缓冲区来实现高效解包
+    - 解包时，结构体中的切片/字符串字段会直接引用这些内部缓冲区
+    - 只要您的结构体字段还在引用这些缓冲区，它们就会保留在内存中
+    - 内存保留示例：
+
+        ```go
+        type Message struct {
+            Data []byte    // 这个字段会引用内部缓冲区
+        }
+
+        func processRetain() {
+            messages := make([]*Message, 0)
+
+            // 每个解包的消息的 Data 字段都引用内部缓冲区
+            for i := 0; i < 10; i++ {
+                msg := &Message{}
+                struc.Unpack(reader, msg)
+                messages = append(messages, msg)
+                // 内部缓冲区无法被 GC，因为 msg.Data 引用着它
+            }
+        }
+        ```
+
+    - 要释放对内部缓冲区的引用，您可以将字段设为 nil 或复制数据：
+
+        ```go
+        func processRelease() {
+            msg := &Message{}
+            struc.Unpack(reader, msg)
+
+            // 方法1：如果不再需要数据，直接设为 nil
+            msg.Data = nil  // 现在 msg.Data 为 nil，不再引用内部缓冲区
+
+            // 方法2：如果需要保留数据，进行复制
+            if needData {
+                dataCopy := make([]byte, len(msg.Data))
+                copy(dataCopy, msg.Data)
+                msg.Data = dataCopy  // 现在 msg.Data 引用我们的副本
+            }
+
+            // 如果没有其他结构体引用，内部缓冲区现在可以被 GC 了
+        }
+        ```
 
 ## 性能基准测试
 

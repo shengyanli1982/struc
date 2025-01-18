@@ -124,8 +124,55 @@ type FixedArray struct {
     - Validate data sizes before processing
 
 3. **Performance Optimization**
+
     - Reuse structs when possible
     - Consider using pools for frequently used structures
+
+4. **Memory Management**
+
+    - The library uses internal 4K buffers for efficient unpacking
+    - When unpacking, slice/string fields in your struct will directly reference these internal buffers
+    - These buffers will remain in memory as long as your struct fields reference them
+    - Example of memory retention:
+
+        ```go
+        type Message struct {
+            Data []byte    // This field will reference the internal buffer
+        }
+
+        func processRetain() {
+            messages := make([]*Message, 0)
+
+            // Each unpacked message's Data field references the internal buffer
+            for i := 0; i < 10; i++ {
+                msg := &Message{}
+                struc.Unpack(reader, msg)
+                messages = append(messages, msg)
+                // The internal buffer can't be GC'ed because msg.Data references it
+            }
+        }
+        ```
+
+    - To release the internal buffer reference, you can either set the field to nil or copy the data:
+
+        ```go
+        func processRelease() {
+            msg := &Message{}
+            struc.Unpack(reader, msg)
+
+            // Method 1: Simply set to nil if you don't need the data anymore
+            msg.Data = nil  // Now msg.Data is nil, no longer references the internal buffer
+
+            // Method 2: Copy data if you need to keep it
+            if needData {
+                dataCopy := make([]byte, len(msg.Data))
+                copy(dataCopy, msg.Data)
+                msg.Data = dataCopy  // Now msg.Data references our copy
+            }
+
+            // The internal buffer can now be GC'ed if no other structs reference it
+        }
+        ```
 
 ## Performance Benchmarks
 
