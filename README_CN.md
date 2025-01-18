@@ -17,16 +17,6 @@
 -   📦 **丰富类型支持**：支持原始类型、数组、切片和自定义填充
 -   🎯 **零依赖**：纯 Go 实现，无外部依赖
 
-## 性能亮点
-
-```
-BenchmarkManualEncode:     25.64 ns/op    (基准线)
-BenchmarkStdlibEncode:    206.0 ns/op     (慢 8 倍)
-BenchmarkStrucEncode:     373.2 ns/op     (慢 15 倍但功能丰富)
-```
-
-我们的基准测试表明，虽然 `struc` 由于使用反射而略慢于原始手动编码（这是预期的），但它提供了显著更多的功能和便利性。
-
 ## 安装
 
 ```bash
