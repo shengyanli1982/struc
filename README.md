@@ -130,10 +130,16 @@ type FixedArray struct {
 
 4. **Memory Management**
 
-    - The library uses internal 4K buffers for efficient unpacking
+    - When packing, the library pre-allocates a buffer with the exact size needed for the data
+
+        ```go
+        bufferSize := packer.Sizeof(value, options)
+        buffer := make([]byte, bufferSize)
+        ```
+
+    - For unpacking, the library uses internal 4K buffers for efficient operations
     - When unpacking, slice/string fields in your struct will directly reference these internal buffers
     - These buffers will remain in memory as long as your struct fields reference them
-    - Example of memory retention:
 
         ```go
         type Message struct {
@@ -143,12 +149,31 @@ type FixedArray struct {
         func processRetain() {
             messages := make([]*Message, 0)
 
+            // >> Important:
+            // The Field struct is just a metadata description object
+            // Its lifecycle end does not affect user struct fields that have been set via unsafe operations
+            // Because unsafe operations have directly modified the underlying pointer of user struct fields to point to the 4K buffer
+            // >> Therefore:
+            // Releasing the Field struct will not cause the slice references on the 4K buffer to disappear
+            // These references only disappear when the user structs using these slices are GC'ed
+            // The 4K buffer's lifecycle depends on the lifecycle of all user structs referencing it
+
             // Each unpacked message's Data field references the internal buffer
             for i := 0; i < 10; i++ {
                 msg := &Message{}
+                // During unpacking:
+                // 1. unpackBasicTypeSlicePool provides 4K buffer
+                // 2. Field struct handles metadata
+                // 3. unsafe operations point msg.Data to part of 4K buffer
                 struc.Unpack(reader, msg)
+                // Even if Field struct is released now
+                // msg.Data still points to 4K buffer
+                // Only when msg is GC'ed will this reference disappear
                 messages = append(messages, msg)
-                // The internal buffer can't be GC'ed because msg.Data references it
+                // Internal buffer can't be GC'ed because msg.Data references it
+                // Field struct's lifecycle is irrelevant to 4K buffer references
+                // 4K buffer references are held by user structs
+                // Only when all user structs referencing this 4K buffer are GC'ed can the buffer be collected
             }
         }
         ```
