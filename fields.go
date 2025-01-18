@@ -10,6 +10,16 @@ import (
 	"strings"
 )
 
+// unpackBasicTypeSlicePool 是全局共享的字节块实例
+// 用于在 unpackBasicType 方法内共享字节切片，减少内存分配
+//
+// unpackBasicTypeSlicePool is a globally shared byte block instance
+// Used for sharing byte slices within the unpackBasicType method to reduce memory allocations
+var unpackBasicTypeSlicePool = &BytesSlicePool{
+	bytes:  make([]byte, 4096),
+	offset: 0,
+}
+
 // Fields 是字段切片类型，用于管理结构体的字段集合
 // 它提供了字段的序列化、反序列化和大小计算等功能
 //
@@ -244,17 +254,7 @@ func (f Fields) unpackBasicType(reader io.Reader, fieldValue reflect.Value, fiel
 	// 计算数据大小并分配缓冲区
 	// Calculate data size and allocate buffer
 	dataSize := fieldLength * resolvedType.Size()
-	var buffer []byte
-	if dataSize < 8 {
-		// 小数据使用栈上分配
-		// Use stack allocation for small data
-		var tempBuffer [8]byte
-		buffer = tempBuffer[:dataSize]
-	} else {
-		// 大数据使用堆上分配
-		// Use heap allocation for large data
-		buffer = make([]byte, dataSize)
-	}
+	buffer := unpackBasicTypeSlicePool.GetSlice(dataSize)
 
 	// 从 reader 读取数据
 	// Read data from reader

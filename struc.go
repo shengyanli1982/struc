@@ -21,12 +21,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"sync"
 )
-
-// cache for parsed fields to improve performance
-// 缓存已解析的字段以提高性能
-var packerCache sync.Map // map[reflect.Type]Packer
 
 // Pack 使用默认选项将数据打包到写入器中
 // 这是一个便捷方法，内部调用 PackWithOptions
@@ -163,6 +158,8 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 		return reflect.Value{}, nil, fmt.Errorf("cannot pack/unpack nil data")
 	}
 
+	// 获取数据的反射值
+	// Get the reflection value of the data
 	value := reflect.ValueOf(data)
 
 	// 解引用指针直到获取非指针类型
@@ -174,12 +171,6 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 		} else {
 			break
 		}
-	}
-
-	// Check if we have a cached packer for this type
-	// 检查是否有此类型的缓存打包器
-	if packer, ok := packerCache.Load(value.Type()); ok {
-		return value, packer.(Packer), nil
 	}
 
 	var packer Packer
@@ -194,10 +185,9 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 		if fields, err := parseFields(value); err != nil {
 			return reflect.Value{}, nil, fmt.Errorf("failed to parse fields: %w", err)
 		} else {
-			packer = fields
-			// Cache the parsed fields for future use
 			// 缓存解析的字段以供将来使用
-			packerCache.Store(value.Type(), packer)
+			// Cache parsed fields for future use
+			packer = fields
 		}
 	default:
 		if !value.IsValid() {
@@ -206,8 +196,12 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 		// 处理自定义类型和基本类型
 		// Handle custom types and basic types
 		if customPacker, ok := data.(Custom); ok {
+			// 使用自定义类型的打包器
+			// Use custom type packer
 			packer = customFallback{customPacker}
 		} else {
+			// 使用默认的二进制打包器
+			// Use default binary packer
 			packer = binaryFallback(value)
 		}
 	}

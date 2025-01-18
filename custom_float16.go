@@ -5,7 +5,6 @@ import (
 	"io"
 	"math"
 	"strconv"
-	"sync"
 )
 
 // Float16 表示一个16位浮点数
@@ -27,15 +26,14 @@ import (
 // 10 bits: Fraction (implied leading 1)
 type Float16 float64
 
-// float16BufferPool 为 Float16 操作提供线程安全的缓冲池
-// 使用 sync.Pool 复用 2 字节的缓冲区，减少内存分配
+// float16SlicePool 为 Float16 操作提供线程安全的缓冲池
+// 使用 BytesSlicePool 管理共享字节切片，减少内存分配
 //
-// float16BufferPool provides a thread-safe buffer pool for Float16 operations
-// Uses sync.Pool to reuse 2-byte buffers, reducing memory allocations
-var float16BufferPool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, 2)
-	},
+// float16SlicePool provides a thread-safe buffer pool for Float16 operations
+// Uses BytesSlicePool to manage shared byte slices, reducing memory allocations
+var float16SlicePool = &BytesSlicePool{
+	bytes:  make([]byte, 4096),
+	offset: 0,
 }
 
 // Pack 将 Float16 值序列化为16位二进制格式
@@ -128,8 +126,7 @@ func (f *Float16) Pack(buffer []byte, options *Options) (int, error) {
 func (f *Float16) Unpack(reader io.Reader, length int, options *Options) error {
 	// 从对象池获取缓冲区
 	// Get buffer from pool
-	buffer := float16BufferPool.Get().([]byte)
-	defer float16BufferPool.Put(buffer)
+	buffer := float16SlicePool.GetSlice(2)
 
 	// 获取字节序，如果未指定则使用大端序
 	// Get byte order, use big-endian if not specified
