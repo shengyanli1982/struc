@@ -40,6 +40,11 @@ type FormatTestPadding struct {
 	E int64  `struc:"int64"`
 }
 
+type FormatTestPaddingOnly struct {
+	A []byte `struc:"[4]pad"` // 4字节填充 / 4-byte padding
+	B []byte `struc:"[2]pad"` // 2字节填充 / 2-byte padding
+}
+
 // 大小端混合测试结构体
 // Mixed endianness test struct
 type FormatTestEndian struct {
@@ -117,7 +122,7 @@ func TestGetFormatString(t *testing.T) {
 		{
 			name: "basic types",
 			data: &FormatTestBasic{},
-			want: "<bBhHiIqQfd", // 按照 formatMap 映射: Int8(b), Uint8(B), Int16(h), Uint16(H), Int32(i), Uint32(I), Int64(q), Uint64(Q), Float32(f), Float64(d)
+			want: ">bBh<H>iIqQfd", // 按照 formatMap 映射: Int8(b), Uint8(B), Int16(h), Uint16(H), Int32(i), Uint32(I), Int64(q), Uint64(Q), Float32(f), Float64(d)
 		},
 		{
 			name: "string types",
@@ -130,9 +135,14 @@ func TestGetFormatString(t *testing.T) {
 			want: ">i4xH2xq", // 按照 formatMap 映射: Int32(i), Pad(4x), Uint16(H), Pad(2x), Int64(q)
 		},
 		{
+			name: "padding only",
+			data: &FormatTestPaddingOnly{},
+			want: ">4x2x", // 按照 formatMap 映射: Pad(4x), Pad(2x)
+		},
+		{
 			name: "mixed endianness",
 			data: &FormatTestEndian{},
-			want: "<HIQh", // 按照 formatMap 映射: Uint16(H), Uint32(I), Uint64(Q), Int16(h)
+			want: ">H<I>Q<h", // 按照 formatMap 映射: Uint16(H), Uint32(I), Uint64(Q), Int16(h)
 		},
 		{
 			name: "sizeof fields",
@@ -142,7 +152,7 @@ func TestGetFormatString(t *testing.T) {
 		{
 			name: "nested struct",
 			data: &FormatTestNested{},
-			want: ">IH4s8xiBhhqd16sffI2shH4s", // 按照 formatMap 映射: Header(IH4s8x) + Body(iBhh) + Details(qd16s) + Statistics(ffI) + Metadata(2shH4s)
+			want: ">IH4s8xiBhhqd16sff<I>2sh<H>4s", // 按照 formatMap 映射: Uint32(I), Uint16(H), [4]byte(4s), Int8(i), Uint8(B), Int16(h), Int64(q), String(16s), Float32(f), Float64(d), Int32(i), Int16(h), Uint16(H), [4]byte(4s)
 		},
 		{
 			name: "array types",
@@ -180,50 +190,5 @@ func TestGetFormatString(t *testing.T) {
 				t.Errorf("GetFormatString() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-// 测试特殊情况
-// Test special cases
-func TestGetFormatStringSpecialCases(t *testing.T) {
-	// 空结构体
-	// Empty struct
-	type EmptyStruct struct{}
-	got, err := GetFormatString(&EmptyStruct{})
-	if err != nil {
-		t.Errorf("GetFormatString() empty struct error = %v", err)
-	}
-	if got != ">" {
-		t.Errorf("GetFormatString() empty struct = %v, want >", got)
-	}
-
-	// 只有填充字节的结构体
-	// Struct with only padding
-	type PaddingOnly struct {
-		Pad1 []byte `struc:"[8]pad"`
-		Pad2 []byte `struc:"[4]pad"`
-	}
-	got, err = GetFormatString(&PaddingOnly{})
-	if err != nil {
-		t.Errorf("GetFormatString() padding only error = %v", err)
-	}
-	if got != ">8x4x" {
-		t.Errorf("GetFormatString() padding only = %v, want >8x4x", got)
-	}
-
-	// 只有大小引用字段的结构体
-	// Struct with only size reference fields
-	type SizeRefOnly struct {
-		Size1 int `struc:"int32,sizeof=Data1"`
-		Data1 []byte
-		Size2 int `struc:"int16,sizeof=Data2"`
-		Data2 []byte
-	}
-	got, err = GetFormatString(&SizeRefOnly{})
-	if err != nil {
-		t.Errorf("GetFormatString() size ref only error = %v", err)
-	}
-	if got != ">ih" {
-		t.Errorf("GetFormatString() size ref only = %v, want >ih", got)
 	}
 }

@@ -84,32 +84,25 @@ func validateInput(data interface{}) (reflect.Value, error) {
 func buildFormatString(fields Fields) (string, error) {
 	var format strings.Builder
 
-	// 确定字节序
-	// Determine endianness
-	endianness := determineEndianness(fields)
-	format.WriteString(endianness)
+	// 确定初始字节序，默认为大端序
+	// Determine initial endianness, default to big-endian
+	initialEndianness := ">"
+	var initialOrder binary.ByteOrder = binary.BigEndian
+	for _, field := range fields {
+		if field != nil && field.ByteOrder == binary.LittleEndian {
+			initialEndianness = "<"
+			initialOrder = binary.LittleEndian
+			break
+		}
+	}
 
 	// 生成字段格式
 	// Generate field formats
-	if err := formatFields(&format, fields); err != nil {
+	if err := formatFields(&format, fields, initialEndianness, initialOrder); err != nil {
 		return "", err
 	}
 
 	return format.String(), nil
-}
-
-// determineEndianness 确定整个结构体的字节序。
-// 如果任何字段指定了小端序，则整个结构体使用小端序。
-//
-// determineEndianness determines the endianness for the entire struct.
-// If any field specifies little-endian, the entire struct uses little-endian.
-func determineEndianness(fields Fields) string {
-	for _, field := range fields {
-		if field != nil && field.ByteOrder == binary.LittleEndian {
-			return "<"
-		}
-	}
-	return ">"
 }
 
 // formatFields 处理字段集合的格式化。
@@ -117,16 +110,70 @@ func determineEndianness(fields Fields) string {
 //
 // formatFields handles the formatting of a collection of fields.
 // Iterates through all fields, generating corresponding format characters for each field.
-func formatFields(format *strings.Builder, fields Fields) error {
+func formatFields(format *strings.Builder, fields Fields, parentEndianness string, currentOrder binary.ByteOrder) error {
+	lastEndianMark := -1 // 记录上一个大小端标记的位置
+	var formatStr strings.Builder
+	isFirst := true
+
 	for _, field := range fields {
 		if field == nil {
 			continue
 		}
 
-		if err := formatField(format, field); err != nil {
+		startPos := formatStr.Len()
+
+		// 检查字段是否需要切换字节序
+		// Check if field needs to switch endianness
+		if field.ByteOrder != nil && field.ByteOrder != currentOrder {
+			// 如果是第一个字段，直接写入正确的字节序
+			if isFirst {
+				if field.ByteOrder == binary.LittleEndian {
+					formatStr.WriteString("<")
+					currentOrder = binary.LittleEndian
+				} else {
+					formatStr.WriteString(">")
+					currentOrder = binary.BigEndian
+				}
+				lastEndianMark = formatStr.Len() - 1
+			} else {
+				// 如果上一个大小端标记后没有任何有效字符，直接替换它
+				if lastEndianMark >= 0 && startPos == lastEndianMark+1 {
+					// 替换上一个大小端标记
+					oldStr := formatStr.String()
+					formatStr.Reset()
+					formatStr.WriteString(oldStr[:lastEndianMark])
+				}
+
+				if field.ByteOrder == binary.LittleEndian {
+					formatStr.WriteString("<")
+					currentOrder = binary.LittleEndian
+				} else {
+					formatStr.WriteString(">")
+					currentOrder = binary.BigEndian
+				}
+				lastEndianMark = formatStr.Len() - 1
+			}
+		} else if isFirst {
+			// 第一个字段使用父级字节序
+			formatStr.WriteString(parentEndianness)
+			lastEndianMark = formatStr.Len() - 1
+		}
+
+		// 格式化当前字段
+		tmpBuilder := &strings.Builder{}
+		if err := formatField(tmpBuilder, field); err != nil {
 			return err
 		}
+		fieldFormat := tmpBuilder.String()
+
+		// 如果字段格式非空，添加到结果中
+		if fieldFormat != "" {
+			formatStr.WriteString(fieldFormat)
+			isFirst = false
+		}
 	}
+
+	format.WriteString(formatStr.String())
 	return nil
 }
 
@@ -139,7 +186,7 @@ func formatField(format *strings.Builder, field *Field) error {
 	// 处理嵌套结构体
 	// Handle nested structs
 	if field.Type == Struct {
-		return formatFields(format, field.NestFields)
+		return formatFields(format, field.NestFields, "", binary.BigEndian)
 	}
 
 	// 处理 sizeof 字段
