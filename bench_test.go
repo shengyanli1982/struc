@@ -148,7 +148,6 @@ func BenchmarkDecode(b *testing.B) {
 		out.Data = nil
 	}
 }
-
 func BenchmarkStdlibDecode(b *testing.B) {
 	var out BenchExample
 	var buf bytes.Buffer
@@ -226,6 +225,35 @@ func BenchmarkFieldPool(b *testing.B) {
 		for pb.Next() {
 			var buf bytes.Buffer
 			_ = Pack(&buf, data)
+		}
+	})
+}
+
+func BenchmarkGetFormatString(b *testing.B) {
+	b.Run("Simple", func(b *testing.B) {
+		type Simple struct {
+			A int32
+			B string `struc:"[8]byte"`
+			C float64
+		}
+		data := &Simple{A: 1, B: "test", C: 3.14}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := GetFormatString(data)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("Complex", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := GetFormatString(testBenchStrucExample)
+			if err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 }
