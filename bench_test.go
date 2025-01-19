@@ -3,8 +3,18 @@ package struc
 import (
 	"bytes"
 	"encoding/binary"
+	"net/http"
+	_ "net/http/pprof"
 	"testing"
 )
+
+func init() {
+	// 启动 pprof http 服务
+	go func() {
+		println("Starting pprof server on :6060")
+		println(http.ListenAndServe("localhost:6060", nil))
+	}()
+}
 
 type BenchExample struct {
 	Test    [5]byte
