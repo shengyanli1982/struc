@@ -63,13 +63,38 @@ type FormatTestSizeof struct {
 // 嵌套结构体测试
 // Nested struct test
 type FormatTestNested struct {
+	// Level 1
 	Header struct {
-		Size    uint32 `struc:"uint32"`
-		Version uint16 `struc:"uint16"`
+		Size     uint32  `struc:"uint32"`
+		Version  uint16  `struc:"uint16"`
+		Magic    [4]byte `struc:"[4]byte"`
+		Reserved []byte  `struc:"[8]pad"`
 	}
+	// Level 2
 	Body struct {
-		Data []byte `struc:"[16]byte"`
-		Type uint8  `struc:"uint8"`
+		DataSize int32    `struc:"int32,sizeof=Data"`
+		Data     []byte   `struc:"[]byte"`
+		Type     uint8    `struc:"uint8"`
+		Flags    [2]int16 `struc:"[2]int16"`
+		// Level 3
+		Details struct {
+			Timestamp int64   `struc:"int64"`
+			Value     float64 `struc:"float64"`
+			Name      string  `struc:"[16]byte"`
+			// Level 4
+			Statistics struct {
+				Min   float32 `struc:"float32"`
+				Max   float32 `struc:"float32"`
+				Count uint32  `struc:"uint32,little"`
+				// Level 5
+				Metadata struct {
+					Tags     [2]uint8 `struc:"[2]uint8"`
+					Status   int16    `struc:"int16,big"`
+					Priority uint16   `struc:"uint16,little"`
+					Checksum [4]byte  `struc:"[4]byte"`
+				}
+			}
+		}
 	}
 }
 
@@ -117,7 +142,7 @@ func TestGetFormatString(t *testing.T) {
 		{
 			name: "nested struct",
 			data: &FormatTestNested{},
-			want: ">IH16sB", // 按照 formatMap 映射: Uint32(I), Uint16(H), String(16s), Uint8(B)
+			want: ">IH4s8xiBhhqd16sffI2shH4s", // 按照 formatMap 映射: Header(IH4s8x) + Body(iBhh) + Details(qd16s) + Statistics(ffI) + Metadata(2shH4s)
 		},
 		{
 			name: "array types",
