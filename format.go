@@ -21,7 +21,7 @@ var formatMap = map[Type]string{
 	Float32: "f", // float (单精度浮点数)
 	Float64: "d", // double (双精度浮点数)
 	String:  "s", // char[] (字符数组)
-	Bool:    "?", // _Bool (布尔值)
+	Bool:    "?", // boolean (布尔值)
 	Pad:     "x", // padding (填充字节)
 }
 

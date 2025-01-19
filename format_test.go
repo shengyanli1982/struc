@@ -74,6 +74,7 @@ type FormatTestNested struct {
 		Version  uint16  `struc:"uint16"`
 		Magic    [4]byte `struc:"[4]byte"`
 		Reserved []byte  `struc:"[8]pad"`
+		Skip1    int     `struc:"skip"` // 跳过此字段 / Skip this field
 	}
 	// Level 2
 	Body struct {
@@ -81,22 +82,26 @@ type FormatTestNested struct {
 		Data     []byte   `struc:"[]byte"`
 		Type     uint8    `struc:"uint8"`
 		Flags    [2]int16 `struc:"[2]int16"`
+		Skip2    float32  `struc:"-"` // 忽略此字段 / Ignore this field
 		// Level 3
 		Details struct {
 			Timestamp int64   `struc:"int64"`
 			Value     float64 `struc:"float64"`
 			Name      string  `struc:"[16]byte"`
+			Skip3     bool    `struc:"skip"` // 跳过此字段 / Skip this field
 			// Level 4
 			Statistics struct {
 				Min   float32 `struc:"float32"`
 				Max   float32 `struc:"float32"`
 				Count uint32  `struc:"uint32,little"`
+				Skip4 string  `struc:"-"` // 忽略此字段 / Ignore this field
 				// Level 5
 				Metadata struct {
 					Tags     [2]uint8 `struc:"[2]uint8"`
 					Status   int16    `struc:"int16,big"`
 					Priority uint16   `struc:"uint16,little"`
 					Checksum [4]byte  `struc:"[4]byte"`
+					Skip5    int64    `struc:"skip"` // 跳过此字段 / Skip this field
 				}
 			}
 		}
