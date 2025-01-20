@@ -1,10 +1,10 @@
 package struc
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"reflect"
-	"strings"
 )
 
 // 格式映射表定义了 Go 类型到二进制格式字符的映射关系
@@ -47,7 +47,14 @@ func GetFormatString(data interface{}) (string, error) {
 
 	// 确定字节序并生成格式字符串
 	// Determine endianness and generate format string
-	return buildFormatString(fields)
+	buf := acquireBuffer()
+	defer releaseBuffer(buf)
+
+	if err := buildFormatStringWithBuffer(fields, buf); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
 }
 
 // validateInput 验证输入数据并返回结构体的反射值。
@@ -76,14 +83,9 @@ func validateInput(data interface{}) (reflect.Value, error) {
 	return value, nil
 }
 
-// buildFormatString 构建格式字符串。
-// 首先确定字节序，然后生成所有字段的格式。
-//
-// buildFormatString builds the format string.
-// First determines the endianness, then generates the format for all fields.
-func buildFormatString(fields Fields) (string, error) {
-	var format strings.Builder
-
+// buildFormatStringWithBuffer 使用缓冲区构建格式字符串
+// buildFormatStringWithBuffer builds format string using buffer
+func buildFormatStringWithBuffer(fields Fields, buf *bytes.Buffer) error {
 	// 确定初始字节序，默认为大端序
 	// Determine initial endianness, default to big-endian
 	initialEndianness := ">"
@@ -98,21 +100,18 @@ func buildFormatString(fields Fields) (string, error) {
 
 	// 生成字段格式
 	// Generate field formats
-	if err := formatFields(&format, fields, initialEndianness, initialOrder); err != nil {
-		return "", err
+	if err := formatFields(buf, fields, initialEndianness, initialOrder); err != nil {
+		return err
 	}
 
-	return format.String(), nil
+	return nil
 }
 
-// formatFields 处理字段集合的格式化。
-// 遍历所有字段，为每个字段生成对应的格式字符。
-//
-// formatFields handles the formatting of a collection of fields.
-// Iterates through all fields, generating corresponding format characters for each field.
-func formatFields(format *strings.Builder, fields Fields, parentEndianness string, currentOrder binary.ByteOrder) error {
+// formatFields 处理字段集合的格式化
+// formatFields handles the formatting of a collection of fields
+func formatFields(buf *bytes.Buffer, fields Fields, parentEndianness string, currentOrder binary.ByteOrder) error {
 	state := &formatState{
-		builder:     strings.Builder{},
+		buffer:      buf,
 		lastEndian:  -1,
 		isFirst:     true,
 		curOrder:    currentOrder,
@@ -131,14 +130,13 @@ func formatFields(format *strings.Builder, fields Fields, parentEndianness strin
 		}
 	}
 
-	format.WriteString(state.builder.String())
 	return nil
 }
 
 // formatState 维护格式化过程中的状态信息
 // formatState maintains state information during the formatting process
 type formatState struct {
-	builder     strings.Builder  // 格式字符串构建器 / Format string builder
+	buffer      *bytes.Buffer    // 格式字符串缓冲区 / Format string buffer
 	lastEndian  int              // 上一个字节序标记的位置 / Position of the last endianness marker
 	isFirst     bool             // 是否是第一个字段 / Whether this is the first field
 	curOrder    binary.ByteOrder // 当前字节序 / Current byte order
@@ -148,7 +146,7 @@ type formatState struct {
 // processField 处理单个字段的格式化，包括字节序管理和字段内容格式化
 // processField handles the formatting of a single field, including endianness management and field content formatting
 func (s *formatState) processField(field *Field) error {
-	startPos := s.builder.Len()
+	startPos := s.buffer.Len()
 
 	// 处理字节序
 	// Handle endianness
@@ -158,16 +156,17 @@ func (s *formatState) processField(field *Field) error {
 
 	// 格式化字段内容
 	// Format field content
-	tmpBuilder := &strings.Builder{}
-	if err := formatField(tmpBuilder, field); err != nil {
+	tmpBuf := acquireBuffer()
+	defer releaseBuffer(tmpBuf)
+	if err := formatField(tmpBuf, field); err != nil {
 		return err
 	}
 
 	// 添加字段格式到结果中
 	// Add field format to result
-	fieldFormat := tmpBuilder.String()
+	fieldFormat := tmpBuf.String()
 	if fieldFormat != "" {
-		s.builder.WriteString(fieldFormat)
+		s.buffer.WriteString(fieldFormat)
 		s.isFirst = false
 	}
 
@@ -181,8 +180,8 @@ func (s *formatState) handleEndianness(field *Field, startPos int) error {
 		// 如果是第一个字段且没有指定字节序，使用父级字节序
 		// If it's the first field and no endianness specified, use parent endianness
 		if s.isFirst {
-			s.builder.WriteString(s.parentOrder)
-			s.lastEndian = s.builder.Len() - 1
+			s.buffer.WriteString(s.parentOrder)
+			s.lastEndian = s.buffer.Len() - 1
 		}
 		return nil
 	}
@@ -196,9 +195,9 @@ func (s *formatState) handleEndianness(field *Field, startPos int) error {
 	} else if s.lastEndian >= 0 && startPos == s.lastEndian+1 {
 		// 如果上一个字节序标记后没有任何有效字符，直接替换它
 		// If there are no valid characters after the last endianness marker, replace it directly
-		oldStr := s.builder.String()
-		s.builder.Reset()
-		s.builder.WriteString(oldStr[:s.lastEndian])
+		oldStr := s.buffer.String()
+		s.buffer.Reset()
+		s.buffer.WriteString(oldStr[:s.lastEndian])
 		s.writeEndianness(field.ByteOrder)
 	} else {
 		// 添加新的字节序标记
@@ -213,28 +212,28 @@ func (s *formatState) handleEndianness(field *Field, startPos int) error {
 // writeEndianness writes endianness marker to the format string
 func (s *formatState) writeEndianness(order binary.ByteOrder) {
 	if order == binary.LittleEndian {
-		s.builder.WriteString("<") // 小端序标记 / Little-endian marker
+		s.buffer.WriteString("<") // 小端序标记 / Little-endian marker
 		s.curOrder = binary.LittleEndian
 	} else {
-		s.builder.WriteString(">") // 大端序标记 / Big-endian marker
+		s.buffer.WriteString(">") // 大端序标记 / Big-endian marker
 		s.curOrder = binary.BigEndian
 	}
-	s.lastEndian = s.builder.Len() - 1
+	s.lastEndian = s.buffer.Len() - 1
 }
 
 // formatField 处理单个字段的格式化，根据字段类型选择不同的格式化方式
 // formatField handles the formatting of a single field, choosing different formatting methods based on field type
-func formatField(format *strings.Builder, field *Field) error {
+func formatField(buf *bytes.Buffer, field *Field) error {
 	// 处理嵌套结构体
 	// Handle nested structs
 	if field.Type == Struct {
-		return formatFields(format, field.NestFields, "", binary.BigEndian)
+		return formatFields(buf, field.NestFields, "", binary.BigEndian)
 	}
 
 	// 处理 sizeof 字段
 	// Handle sizeof fields
 	if len(field.Sizeof) > 0 {
-		return formatSizeofField(format, field)
+		return formatSizeofField(buf, field)
 	}
 
 	// 跳过 sizefrom 字段
@@ -246,28 +245,28 @@ func formatField(format *strings.Builder, field *Field) error {
 	// 处理数组和切片
 	// Handle arrays and slices
 	if field.IsArray || field.IsSlice {
-		return formatArrayField(format, field)
+		return formatArrayField(buf, field)
 	}
 
 	// 处理基本类型
 	// Handle basic types
-	return formatBasicField(format, field)
+	return formatBasicField(buf, field)
 }
 
 // formatSizeofField 处理 sizeof 字段的格式化，将字段类型转换为对应的格式字符
 // formatSizeofField handles the formatting of sizeof fields, converting field type to corresponding format character
-func formatSizeofField(format *strings.Builder, field *Field) error {
+func formatSizeofField(buf *bytes.Buffer, field *Field) error {
 	formatChar, ok := formatMap[field.Type]
 	if !ok {
 		return fmt.Errorf("unsupported sizeof type for field %s", field.Name)
 	}
-	format.WriteString(formatChar)
+	buf.WriteString(formatChar)
 	return nil
 }
 
 // formatArrayField 处理数组和切片字段的格式化，根据数组的基本类型和长度生成格式字符串
 // formatArrayField handles the formatting of array and slice fields, generating format string based on array's base type and length
-func formatArrayField(format *strings.Builder, field *Field) error {
+func formatArrayField(buf *bytes.Buffer, field *Field) error {
 	// 验证长度
 	// Validate length
 	if field.Length <= 0 && len(field.Sizefrom) == 0 {
@@ -284,39 +283,39 @@ func formatArrayField(format *strings.Builder, field *Field) error {
 	// 处理填充字节
 	// Handle padding bytes
 	if field.Type == Pad {
-		format.WriteString(fmt.Sprintf("%d%s", field.Length, formatMap[Pad]))
+		fmt.Fprintf(buf, "%d%s", field.Length, formatMap[Pad])
 		return nil
 	}
 
 	// 处理字节数组和字符串
 	// Handle byte arrays and strings
 	if baseType == Uint8 || baseType == String || field.Type == String {
-		format.WriteString(fmt.Sprintf("%d%s", field.Length, formatMap[String]))
+		fmt.Fprintf(buf, "%d%s", field.Length, formatMap[String])
 		return nil
 	}
 
 	// 处理其他类型的数组
 	// Handle other array types
-	return formatArrayElements(format, field.Length, baseType)
+	return formatArrayElements(buf, field.Length, baseType)
 }
 
 // formatArrayElements 处理数组元素的格式化，重复生成数组元素的格式字符
 // formatArrayElements handles the formatting of array elements, repeatedly generating format characters for array elements
-func formatArrayElements(format *strings.Builder, length int, baseType Type) error {
+func formatArrayElements(buf *bytes.Buffer, length int, baseType Type) error {
 	formatChar, ok := formatMap[baseType]
 	if !ok {
 		return fmt.Errorf("unsupported array element type: %v", baseType)
 	}
 
 	for i := 0; i < length; i++ {
-		format.WriteString(formatChar)
+		buf.WriteString(formatChar)
 	}
 	return nil
 }
 
 // formatBasicField 处理基本类型字段的格式化，根据字段类型生成对应的格式字符
 // formatBasicField handles the formatting of basic type fields, generating corresponding format character based on field type
-func formatBasicField(format *strings.Builder, field *Field) error {
+func formatBasicField(buf *bytes.Buffer, field *Field) error {
 	formatChar, ok := formatMap[field.Type]
 	if !ok {
 		return fmt.Errorf("unsupported type for field %s: %v", field.Name, field.Type)
@@ -327,7 +326,7 @@ func formatBasicField(format *strings.Builder, field *Field) error {
 		// 处理字符串类型
 		// Handle string type
 		if field.Length > 0 {
-			format.WriteString(fmt.Sprintf("%d%s", field.Length, formatChar))
+			fmt.Fprintf(buf, "%d%s", field.Length, formatChar)
 		} else if len(field.Sizefrom) == 0 {
 			return fmt.Errorf("field `%s` is a string with no length or sizeof field", field.Name)
 		}
@@ -335,14 +334,14 @@ func formatBasicField(format *strings.Builder, field *Field) error {
 		// 处理填充字节
 		// Handle padding bytes
 		if field.Length > 0 {
-			format.WriteString(fmt.Sprintf("%d%s", field.Length, formatChar))
+			fmt.Fprintf(buf, "%d%s", field.Length, formatChar)
 		} else {
-			format.WriteString(formatChar)
+			buf.WriteString(formatChar)
 		}
 	default:
 		// 处理其他基本类型
 		// Handle other basic types
-		format.WriteString(formatChar)
+		buf.WriteString(formatChar)
 	}
 	return nil
 }
