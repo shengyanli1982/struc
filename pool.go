@@ -181,13 +181,17 @@ func (b *BytesSlicePool) GetSlice(size int) []byte {
 		b.offset = 0
 	}
 
+	// 计算结束位置
+	// Calculate end position
+	tail := b.offset + int32(size)
+
 	// 从当前偏移量位置切割指定大小的切片
 	// Slice the requested size from current offset position
-	slice := b.bytes[b.offset : b.offset+int32(size)]
+	slice := b.bytes[b.offset:tail]
 
 	// 更新偏移量
 	// Update offset
-	b.offset += int32(size)
+	b.offset = tail
 
 	b.mu.Unlock()
 	return slice
