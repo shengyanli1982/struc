@@ -133,7 +133,25 @@ var typeStrToType = map[string]Type{
 // typeToString 定义了类型到字符串的映射关系
 // typeToString defines the mapping from types to strings
 var typeToString = map[Type]string{
-	CustomType: "Custom",
+	Invalid:    "invalid",
+	Pad:        "pad",
+	Bool:       "bool",
+	Int8:       "int8",
+	Int16:      "int16",
+	Int32:      "int32",
+	Int64:      "int64",
+	Uint8:      "uint8",
+	Uint16:     "uint16",
+	Uint32:     "uint32",
+	Uint64:     "uint64",
+	Float32:    "float32",
+	Float64:    "float64",
+	String:     "string",
+	Struct:     "struct",
+	Ptr:        "ptr",
+	SizeType:   "size_t",
+	OffType:    "off_t",
+	CustomType: "custom",
 }
 
 // init 初始化类型到字符串的映射

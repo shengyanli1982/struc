@@ -21,8 +21,8 @@ const MaxBufferCapSize = 1 << 20
 // Byte slices exceeding this limit will not be put into the object pool
 const MaxBytesSliceSize = 4096
 
-// bufferPool 用于减少打包/解包时的内存分配
-// bufferPool is used to reduce allocations when packing/unpacking
+// bufferPool 用于减少[]byte的内存分配
+// bufferPool is used to reduce allocations when []byte is used
 var bufferPool = sync.Pool{
 	New: func() interface{} {
 		return bytes.NewBuffer(make([]byte, 0, 1024))
