@@ -3,8 +3,18 @@ package struc
 import (
 	"bytes"
 	"encoding/binary"
+	"net/http"
+	_ "net/http/pprof"
 	"testing"
 )
+
+func init() {
+	// 启动 pprof http 服务
+	go func() {
+		println("Starting pprof server on :6060")
+		println(http.ListenAndServe("localhost:6060", nil))
+	}()
+}
 
 type BenchExample struct {
 	Test    [5]byte
@@ -78,8 +88,10 @@ var testBenchStrucExample = &BenchStrucExample{
 }
 
 func BenchmarkEncode(b *testing.B) {
+	var buf bytes.Buffer
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		var buf bytes.Buffer
+		buf.Reset()
 		err := Pack(&buf, testBenchStrucExample)
 		if err != nil {
 			b.Fatal(err)
@@ -88,8 +100,10 @@ func BenchmarkEncode(b *testing.B) {
 }
 
 func BenchmarkStdlibEncode(b *testing.B) {
+	var buf bytes.Buffer
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		var buf bytes.Buffer
+		buf.Reset()
 		err := binary.Write(&buf, binary.BigEndian, testBenchExample)
 		if err != nil {
 			b.Fatal(err)
@@ -128,17 +142,19 @@ func BenchmarkDecode(b *testing.B) {
 	if err := Pack(&buf, testBenchStrucExample); err != nil {
 		b.Fatal(err)
 	}
-	bufBytes := buf.Bytes()
+	bufBytes := make([]byte, buf.Len())
+	copy(bufBytes, buf.Bytes())
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		buf := bytes.NewReader(bufBytes)
-		err := Unpack(buf, &out)
+		buf.Reset()
+		buf.Write(bufBytes)
+		err := Unpack(&buf, &out)
 		if err != nil {
 			b.Fatal(err)
 		}
 		out.Data = nil
 	}
 }
-
 func BenchmarkStdlibDecode(b *testing.B) {
 	var out BenchExample
 	var buf bytes.Buffer
@@ -147,10 +163,13 @@ func BenchmarkStdlibDecode(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	bufBytes := buf.Bytes()
+	bufBytes := make([]byte, buf.Len())
+	copy(bufBytes, buf.Bytes())
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		buf := bytes.NewReader(bufBytes)
-		err := binary.Read(buf, binary.BigEndian, &out)
+		buf.Reset()
+		buf.Write(bufBytes)
+		err := binary.Read(&buf, binary.BigEndian, &out)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -184,8 +203,10 @@ func BenchmarkManualDecode(b *testing.B) {
 }
 
 func BenchmarkFullEncode(b *testing.B) {
+	var buf bytes.Buffer
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		var buf bytes.Buffer
+		buf.Reset()
 		if err := Pack(&buf, testExample); err != nil {
 			b.Fatal(err)
 		}
@@ -194,9 +215,12 @@ func BenchmarkFullEncode(b *testing.B) {
 
 func BenchmarkFullDecode(b *testing.B) {
 	var out Example
+	var buf bytes.Buffer
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		buf := bytes.NewBuffer(testExampleBytes)
-		if err := Unpack(buf, &out); err != nil {
+		buf.Reset()
+		buf.Write(testExampleBytes)
+		if err := Unpack(&buf, &out); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -210,12 +234,42 @@ func BenchmarkFieldPool(b *testing.B) {
 	}
 
 	data := &TestStruct{A: 1, B: "test", C: 3.14}
+	var buf bytes.Buffer
 
 	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			var buf bytes.Buffer
-			_ = Pack(&buf, data)
+	for i := 0; i < b.N; i++ {
+		buf.Reset()
+		if err := Pack(&buf, data); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGetFormatString(b *testing.B) {
+	b.Run("Simple", func(b *testing.B) {
+		type Simple struct {
+			A int32
+			B string `struc:"[8]byte"`
+			C float64
+		}
+		data := &Simple{A: 1, B: "test", C: 3.14}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := GetFormatString(data)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("Complex", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := GetFormatString(testBenchStrucExample)
+			if err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 }

@@ -21,8 +21,8 @@ const MaxBufferCapSize = 1 << 20
 // Byte slices exceeding this limit will not be put into the object pool
 const MaxBytesSliceSize = 4096
 
-// bufferPool 用于减少打包/解包时的内存分配
-// bufferPool is used to reduce allocations when packing/unpacking
+// bufferPool 用于减少[]byte的内存分配
+// bufferPool is used to reduce allocations when []byte is used
 var bufferPool = sync.Pool{
 	New: func() interface{} {
 		return bytes.NewBuffer(make([]byte, 0, 1024))
@@ -181,13 +181,17 @@ func (b *BytesSlicePool) GetSlice(size int) []byte {
 		b.offset = 0
 	}
 
+	// 计算结束位置
+	// Calculate end position
+	tail := b.offset + int32(size)
+
 	// 从当前偏移量位置切割指定大小的切片
 	// Slice the requested size from current offset position
-	slice := b.bytes[b.offset : b.offset+int32(size)]
+	slice := b.bytes[b.offset:tail]
 
 	// 更新偏移量
 	// Update offset
-	b.offset += int32(size)
+	b.offset = tail
 
 	b.mu.Unlock()
 	return slice

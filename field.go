@@ -37,26 +37,32 @@ type Field struct {
 // String returns a string representation of the field
 // Used for debugging and logging
 func (f *Field) String() string {
+	// 处理空字段或无效类型
+	// Handle empty field or invalid type
+	if f.Type == Invalid {
+		return "{type: invalid, len: 0}"
+	}
+
 	if f.Type == Pad {
-		return fmt.Sprintf("{type: Pad, len: %d}", f.Length)
+		return fmt.Sprintf("{type: %s, len: %d}", f.Type, f.Length)
 	}
 
 	buffer := acquireBuffer()
 	defer releaseBuffer(buffer)
 
 	buffer.WriteString("{")
-	buffer.WriteString(fmt.Sprintf("type: %s", f.Type))
+	fmt.Fprintf(buffer, "type: %s", f.Type)
 
 	if f.ByteOrder != nil {
-		buffer.WriteString(fmt.Sprintf(", order: %v", f.ByteOrder))
+		fmt.Fprintf(buffer, ", order: %v", f.ByteOrder)
 	}
 	if f.Sizefrom != nil {
-		buffer.WriteString(fmt.Sprintf(", sizefrom: %v", f.Sizefrom))
+		fmt.Fprintf(buffer, ", sizefrom: %v", f.Sizefrom)
 	} else if f.Length > 0 {
-		buffer.WriteString(fmt.Sprintf(", len: %d", f.Length))
+		fmt.Fprintf(buffer, ", len: %d", f.Length)
 	}
 	if f.Sizeof != nil {
-		buffer.WriteString(fmt.Sprintf(", sizeof: %v", f.Sizeof))
+		fmt.Fprintf(buffer, ", sizeof: %v", f.Sizeof)
 	}
 	buffer.WriteString("}")
 

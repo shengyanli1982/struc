@@ -1,6 +1,8 @@
 [English](./README.md) | 中文
 
-# struc v2
+<div align="center">
+	<img src="assets/logo.png" alt="logo" width="500px">
+</div>
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/struc/v2)](https://goreportcard.com/report/github.com/shengyanli1982/struc/v2)
 [![Build Status](https://github.com/shengyanli1982/struc/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/struc/actions)
@@ -379,19 +381,21 @@ goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
 cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12          3215172               377.1 ns/op           137 B/op          4 allocs/op
-BenchmarkSliceEncode-12          3022616               395.9 ns/op           137 B/op          4 allocs/op
-BenchmarkArrayDecode-12          3407570               349.5 ns/op            73 B/op          2 allocs/op
-BenchmarkSliceDecode-12          2778577               424.7 ns/op           112 B/op          4 allocs/op
-BenchmarkEncode-12               2776862               431.2 ns/op           168 B/op          4 allocs/op
-BenchmarkStdlibEncode-12         5990055               197.5 ns/op           136 B/op          3 allocs/op
-BenchmarkManualEncode-12        59896976                24.82 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               2913640               404.5 ns/op           103 B/op          2 allocs/op
-BenchmarkStdlibDecode-12         5984299               195.2 ns/op            80 B/op          3 allocs/op
-BenchmarkManualDecode-12        100574584               11.95 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12           1000000              1688 ns/op             456 B/op          4 allocs/op
-BenchmarkFullDecode-12            596047              1901 ns/op             327 B/op          5 allocs/op
-BenchmarkFieldPool-12           19045561                61.38 ns/op          168 B/op          4 allocs/op
+BenchmarkArrayEncode-12          3126645               376.8 ns/op           137 B/op          4 allocs/op
+BenchmarkSliceEncode-12          2977024               406.1 ns/op           137 B/op          4 allocs/op
+BenchmarkArrayDecode-12          3076728               385.5 ns/op            72 B/op          2 allocs/op
+BenchmarkSliceDecode-12          2470924               453.1 ns/op           112 B/op          4 allocs/op
+BenchmarkEncode-12               3131834               365.3 ns/op            56 B/op          2 allocs/op
+BenchmarkStdlibEncode-12         8520051               137.8 ns/op            24 B/op          1 allocs/op
+BenchmarkManualEncode-12        59842612                24.41 ns/op           64 B/op          1 allocs/op
+BenchmarkDecode-12               3120004               375.3 ns/op            55 B/op          1 allocs/op
+BenchmarkStdlibDecode-12         6637729               175.3 ns/op            32 B/op          2 allocs/op
+BenchmarkManualDecode-12        100000000               11.72 ns/op            8 B/op          1 allocs/op
+BenchmarkFullEncode-12            786872              1530 ns/op             216 B/op          2 allocs/op
+BenchmarkFullDecode-12            592785              1881 ns/op             279 B/op          4 allocs/op
+BenchmarkFieldPool-12            7470369               161.2 ns/op            56 B/op          2 allocs/op
+BenchmarkGetFormatString/Simple-12               4952739               239.0 ns/op            21 B/op          2 allocs/op
+BenchmarkGetFormatString/Complex-12              2573410               480.5 ns/op            48 B/op          3 allocs/op
 ```
 
 ## 许可证
