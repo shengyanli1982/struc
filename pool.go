@@ -135,6 +135,7 @@ func releaseFields(fields Fields) {
 type BytesSlicePool struct {
 	bytes  []byte     // 底层字节数组 / underlying byte array
 	offset int32      // 当前偏移量 / current offset position
+	size   int        // 当前块大小 / current block size
 	mu     sync.Mutex // 互斥锁用于保护并发访问 / mutex for protecting concurrent access
 }
 
@@ -153,6 +154,7 @@ func NewBytesSlicePool(size int) *BytesSlicePool {
 	return &BytesSlicePool{
 		bytes:  make([]byte, size),
 		offset: 0,
+		size:   size,
 		mu:     sync.Mutex{},
 	}
 }
@@ -167,17 +169,17 @@ func (b *BytesSlicePool) GetSlice(size int) []byte {
 
 	// 如果请求的大小超过了最大限制，直接分配新的切片
 	// If the requested size exceeds the maximum limit, allocate a new slice directly
-	if size > MaxBytesSliceSize {
+	if size > b.size {
 		b.mu.Unlock()
 		return make([]byte, size)
 	}
 
 	// 检查剩余空间是否足够
 	// Check if remaining space is sufficient
-	if int(b.offset)+size > len(b.bytes) {
-		// 分配新的固定大小块（4096字节）并重置偏移量
-		// Allocate new fixed-size block (4096 bytes) and reset offset
-		b.bytes = make([]byte, MaxBytesSliceSize)
+	if int(b.offset)+size > b.size {
+		// 分配新的固定大小块（size字节）并重置偏移量
+		// Allocate new fixed-size block (size bytes) and reset offset
+		b.bytes = make([]byte, b.size)
 		b.offset = 0
 	}
 
