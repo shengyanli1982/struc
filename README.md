@@ -1,6 +1,8 @@
 English | [中文](./README_CN.md)
 
-# struc v2
+<div align="center">
+	<img src="assets/logo.png" alt="logo" width="500px">
+</div>
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/struc/v2)](https://goreportcard.com/report/github.com/shengyanli1982/struc/v2)
 [![Build Status](https://github.com/shengyanli1982/struc/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/struc/actions)
