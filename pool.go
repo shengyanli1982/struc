@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"reflect"
 	"sync"
+	"sync/atomic"
 )
 
 // MaxBufferCapSize 定义了缓冲区的最大容量限制
@@ -165,36 +166,43 @@ func NewBytesSlicePool(size int) *BytesSlicePool {
 // GetSlice returns a byte slice of specified size
 // If current block has insufficient space, allocates new block and resets offset
 func (b *BytesSlicePool) GetSlice(size int) []byte {
-	b.mu.Lock()
-
 	// 如果请求的大小超过了最大限制，直接分配新的切片
 	// If the requested size exceeds the maximum limit, allocate a new slice directly
 	if size > b.size {
-		b.mu.Unlock()
 		return make([]byte, size)
 	}
 
+	// 使用原子操作获取当前偏移量
+	// Use atomic operation to get current offset
+	offset := atomic.LoadInt32(&b.offset)
+
 	// 检查剩余空间是否足够
 	// Check if remaining space is sufficient
-	if int(b.offset)+size > b.size {
-		// 分配新的固定大小块（size字节）并重置偏移量
-		// Allocate new fixed-size block (size bytes) and reset offset
-		b.bytes = make([]byte, b.size)
-		b.offset = 0
+	if int(offset)+size > b.size {
+		// 使用 CAS 操作尝试重置偏移量
+		// Use CAS operation to try reset offset
+		if atomic.CompareAndSwapInt32(&b.offset, offset, 0) {
+			// 成功重置偏移量，分配新的内存块
+			// Successfully reset offset, allocate new memory block
+			b.bytes = make([]byte, b.size)
+		}
+		// 重新获取偏移量
+		// Re-acquire offset
+		offset = atomic.LoadInt32(&b.offset)
 	}
 
-	// 计算结束位置
-	// Calculate end position
-	tail := b.offset + int32(size)
-
-	// 从当前偏移量位置切割指定大小的切片
-	// Slice the requested size from current offset position
-	slice := b.bytes[b.offset:tail]
-
-	// 更新偏移量
-	// Update offset
-	b.offset = tail
-
-	b.mu.Unlock()
-	return slice
+	// 使用 CAS 操作更新偏移量
+	// Use CAS operation to update offset
+	for {
+		currentOffset := offset
+		nextOffset := currentOffset + int32(size)
+		if atomic.CompareAndSwapInt32(&b.offset, currentOffset, nextOffset) {
+			// 成功更新偏移量，返回切片
+			// Successfully updated offset, return slice
+			return b.bytes[currentOffset:nextOffset]
+		}
+		// CAS 失败，重新获取偏移量并重试
+		// CAS failed, re-acquire offset and retry
+		offset = atomic.LoadInt32(&b.offset)
+	}
 }

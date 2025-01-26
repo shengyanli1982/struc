@@ -376,26 +376,28 @@ Benefits of custom types:
 
 ## Performance Benchmarks
 
-```
+```bash
+$ go.exe test -benchmem -run=^$ -bench . github.com/shengyanli1982/struc/v2
+Starting pprof server on :6060
 goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
 cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12          3126645               376.8 ns/op           137 B/op          4 allocs/op
-BenchmarkSliceEncode-12          2977024               406.1 ns/op           137 B/op          4 allocs/op
-BenchmarkArrayDecode-12          3076728               385.5 ns/op            72 B/op          2 allocs/op
-BenchmarkSliceDecode-12          2470924               453.1 ns/op           112 B/op          4 allocs/op
-BenchmarkEncode-12               3131834               365.3 ns/op            56 B/op          2 allocs/op
-BenchmarkStdlibEncode-12         8520051               137.8 ns/op            24 B/op          1 allocs/op
-BenchmarkManualEncode-12        59842612                24.41 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               3120004               375.3 ns/op            55 B/op          1 allocs/op
-BenchmarkStdlibDecode-12         6637729               175.3 ns/op            32 B/op          2 allocs/op
-BenchmarkManualDecode-12        100000000               11.72 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12            786872              1530 ns/op             216 B/op          2 allocs/op
-BenchmarkFullDecode-12            592785              1881 ns/op             279 B/op          4 allocs/op
-BenchmarkFieldPool-12            7470369               161.2 ns/op            56 B/op          2 allocs/op
-BenchmarkGetFormatString/Simple-12               4952739               239.0 ns/op            21 B/op          2 allocs/op
-BenchmarkGetFormatString/Complex-12              2573410               480.5 ns/op            48 B/op          3 allocs/op
+BenchmarkArrayEncode-12          3288741               366.7 ns/op           137 B/op          4 allocs/op
+BenchmarkSliceEncode-12          3110095               389.8 ns/op           137 B/op          4 allocs/op
+BenchmarkArrayDecode-12          3410102               343.3 ns/op            73 B/op          2 allocs/op
+BenchmarkSliceDecode-12          2904127               423.7 ns/op           113 B/op          4 allocs/op
+BenchmarkEncode-12               3297550               364.5 ns/op            56 B/op          2 allocs/op
+BenchmarkStdlibEncode-12         8496386               139.0 ns/op            24 B/op          1 allocs/op
+BenchmarkManualEncode-12        48760538                24.66 ns/op           64 B/op          1 allocs/op
+BenchmarkDecode-12               3493039               329.7 ns/op            55 B/op          1 allocs/op
+BenchmarkStdlibDecode-12         6607056               176.8 ns/op            32 B/op          2 allocs/op
+BenchmarkManualDecode-12        100000000               11.71 ns/op            8 B/op          1 allocs/op
+BenchmarkFullEncode-12           1000000              1546 ns/op             216 B/op          2 allocs/op
+BenchmarkFullDecode-12           1000000              1684 ns/op             279 B/op          4 allocs/op
+BenchmarkFieldPool-12            7039993               162.4 ns/op            56 B/op          2 allocs/op
+BenchmarkGetFormatString/Simple-12               4950135               238.6 ns/op            21 B/op          2 allocs/op
+BenchmarkGetFormatString/Complex-12              2522713               465.0 ns/op            48 B/op          3 allocs/op
 ```
 
 ## License
