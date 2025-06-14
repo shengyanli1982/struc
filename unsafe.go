@@ -64,10 +64,9 @@ func unsafeGetUint64(buffer []byte, byteOrder binary.ByteOrder) uint64 {
 		// Little-endian can be read directly
 		return *(*uint64)(unsafe.Pointer(&buffer[0]))
 	}
-	// 大端序需要字节交换
-	// Big-endian needs byte swapping
-	return uint64(buffer[7]) | uint64(buffer[6])<<8 | uint64(buffer[5])<<16 | uint64(buffer[4])<<24 |
-		uint64(buffer[3])<<32 | uint64(buffer[2])<<40 | uint64(buffer[1])<<48 | uint64(buffer[0])<<56
+	// 大端序使用 binary 包，可能被编译器优化
+	// Big-endian uses binary package, may be optimized by compiler
+	return binary.BigEndian.Uint64(buffer)
 }
 
 // unsafeGetUint32 使用 unsafe 直接读取 uint32 值
@@ -81,9 +80,9 @@ func unsafeGetUint32(buffer []byte, byteOrder binary.ByteOrder) uint32 {
 		// Little-endian can be read directly
 		return *(*uint32)(unsafe.Pointer(&buffer[0]))
 	}
-	// 大端序需要字节交换
-	// Big-endian needs byte swapping
-	return uint32(buffer[3]) | uint32(buffer[2])<<8 | uint32(buffer[1])<<16 | uint32(buffer[0])<<24
+	// 大端序使用 binary 包，可能被编译器优化
+	// Big-endian uses binary package, may be optimized by compiler
+	return binary.BigEndian.Uint32(buffer)
 }
 
 // unsafeGetUint16 使用 unsafe 直接读取 uint16 值
@@ -97,9 +96,9 @@ func unsafeGetUint16(buffer []byte, byteOrder binary.ByteOrder) uint16 {
 		// Little-endian can be read directly
 		return *(*uint16)(unsafe.Pointer(&buffer[0]))
 	}
-	// 大端序需要字节交换
-	// Big-endian needs byte swapping
-	return uint16(buffer[1]) | uint16(buffer[0])<<8
+	// 大端序使用 binary 包，可能被编译器优化
+	// Big-endian uses binary package, may be optimized by compiler
+	return binary.BigEndian.Uint16(buffer)
 }
 
 // unsafePutUint64 使用 unsafe 直接写入 uint64 值
@@ -114,16 +113,9 @@ func unsafePutUint64(buffer []byte, value uint64, byteOrder binary.ByteOrder) {
 		*(*uint64)(unsafe.Pointer(&buffer[0])) = value
 		return
 	}
-	// 大端序需要字节交换
-	// Big-endian needs byte swapping
-	buffer[0] = byte(value >> 56)
-	buffer[1] = byte(value >> 48)
-	buffer[2] = byte(value >> 40)
-	buffer[3] = byte(value >> 32)
-	buffer[4] = byte(value >> 24)
-	buffer[5] = byte(value >> 16)
-	buffer[6] = byte(value >> 8)
-	buffer[7] = byte(value)
+	// 大端序使用 binary 包，可能被编译器优化
+	// Big-endian uses binary package, may be optimized by compiler
+	binary.BigEndian.PutUint64(buffer, value)
 }
 
 // unsafePutUint32 使用 unsafe 直接写入 uint32 值
@@ -138,12 +130,9 @@ func unsafePutUint32(buffer []byte, value uint32, byteOrder binary.ByteOrder) {
 		*(*uint32)(unsafe.Pointer(&buffer[0])) = value
 		return
 	}
-	// 大端序需要字节交换
-	// Big-endian needs byte swapping
-	buffer[0] = byte(value >> 24)
-	buffer[1] = byte(value >> 16)
-	buffer[2] = byte(value >> 8)
-	buffer[3] = byte(value)
+	// 大端序使用 binary 包，可能被编译器优化
+	// Big-endian uses binary package, may be optimized by compiler
+	binary.BigEndian.PutUint32(buffer, value)
 }
 
 // unsafePutUint16 使用 unsafe 直接写入 uint16 值
@@ -158,10 +147,9 @@ func unsafePutUint16(buffer []byte, value uint16, byteOrder binary.ByteOrder) {
 		*(*uint16)(unsafe.Pointer(&buffer[0])) = value
 		return
 	}
-	// 大端序需要字节交换
-	// Big-endian needs byte swapping
-	buffer[0] = byte(value >> 8)
-	buffer[1] = byte(value)
+	// 大端序使用 binary 包，可能被编译器优化
+	// Big-endian uses binary package, may be optimized by compiler
+	binary.BigEndian.PutUint16(buffer, value)
 }
 
 // unsafeGetFloat64 使用 unsafe 直接读取 float64 值
@@ -226,14 +214,15 @@ func unsafePutFloat32(buffer []byte, value float32, byteOrder binary.ByteOrder) 
 // unsafeMoveSlice uses typedmemmove to move slice data
 // Directly manipulates underlying slice data to avoid memory copy
 func unsafeMoveSlice(dst, src reflect.Value) {
-	// 获取源和目标切片的底层数据结构
-	// Get underlying data structure of source and destination slices
-	dstHeader := (*unsafeSliceHeader)(unsafe.Pointer(dst.UnsafeAddr()))
-	srcHeader := (*unsafeSliceHeader)(unsafe.Pointer(src.UnsafeAddr()))
+	dstPtr := unsafe.Pointer(dst.Pointer())
+	srcPtr := unsafe.Pointer(src.Pointer())
 
-	// 直接设置切片的底层指针和长度
-	// Directly set the underlying pointer and length of the slice
-	dstHeader.Data = srcHeader.Data
-	dstHeader.Len = srcHeader.Len
-	dstHeader.Cap = srcHeader.Len // 容量设置为长度，避免越界访问 / Set capacity to length to prevent out-of-bounds access
+	// The length of data to copy is the length of the source slice in bytes.
+	// Since src is always a []byte slice from reflect.ValueOf(buffer),
+	// src.Len() is the number of bytes.
+	dataLen := uintptr(src.Len())
+	if dataLen == 0 {
+		return
+	}
+	typedmemmove(dstPtr, srcPtr, dataLen)
 }

@@ -41,75 +41,43 @@ var float16SlicePool = NewBytesSlicePool(0)
 // The binary format follows the IEEE 754-2008 binary16 specification
 // Supports special values: ±0, ±∞, NaN
 func (f *Float16) Pack(buffer []byte, options *Options) (int, error) {
-	// 检查缓冲区大小是否足够
-	// Check if buffer size is sufficient
 	if len(buffer) < 2 {
 		return 0, io.ErrShortBuffer
 	}
 
-	// 获取字节序，如果未指定则使用大端序
-	// Get byte order, use big-endian if not specified
 	byteOrder := options.Order
 	if byteOrder == nil {
 		byteOrder = binary.BigEndian
 	}
 
-	// 获取符号位：负数为1，正数为0
-	// Get sign bit: 1 for negative, 0 for positive
-	signBit := uint16(0)
-	if *f < 0 {
-		signBit = 1
+	// This conversion is based on github.com/stdlib-js/math-float64-to-float16
+	// It correctly handles special values and flushes subnormals to zero.
+	bits := math.Float64bits(float64(*f))
+
+	sign := uint16((bits >> 48) & 0x8000)
+	exp := int((bits >> 52) & 0x07FF) // Use int for exponent to handle negative results
+	mant := bits & 0x000FFFFFFFFFFFFF
+
+	var res uint16
+	if exp == 0x07FF { // NaN or Inf
+		res = sign | 0x7C00
+		if mant != 0 { // NaN
+			res |= 0x0200 // Ensure mantissa is non-zero
+		}
+	} else {
+		// Re-bias exponent
+		exp = exp - 1023 + 15
+		if exp >= 0x1F { // Overflow
+			res = sign | 0x7C00
+		} else if exp <= 0 { // Underflow, flush to zero
+			res = sign
+		} else { // Normal number
+			mant >>= 42
+			res = sign | uint16(exp<<10) | uint16(mant)
+		}
 	}
 
-	var fractionBits, exponentBits uint16
-	value := float64(*f)
-
-	// 处理特殊值：无穷大、NaN、负无穷大和零
-	// Handle special values: infinity, NaN, negative infinity, and zero
-	switch {
-	case math.IsInf(value, 0):
-		// 正无穷大：指数全1，小数为0
-		// Positive infinity: all ones in exponent, zero in fraction
-		exponentBits = 0x1f
-		fractionBits = 0
-	case math.IsNaN(value):
-		// NaN：指数全1，小数非0
-		// NaN: all ones in exponent, non-zero in fraction
-		exponentBits = 0x1f
-		fractionBits = 1
-	case math.IsInf(value, -1):
-		// 负无穷大：指数全1，小数为0，符号为1
-		// Negative infinity: all ones in exponent, zero in fraction, sign bit 1
-		exponentBits = 0x1f
-		fractionBits = 0
-		signBit = 1
-	case value == 0:
-		// 处理正零和负零
-		// Handle both positive and negative zero
-		if math.Signbit(value) {
-			signBit = 1
-		}
-	default:
-		// 将 float64 转换为 float16 格式
-		// Convert from float64 to float16 format
-		bits64 := math.Float64bits(value)
-		// 提取指数位
-		// Extract exponent bits
-		exponent64 := (bits64 >> 52) & 0x7ff
-		if exponent64 != 0 {
-			// 调整指数偏移：从float64的1023调整到float16的15
-			// Adjust exponent bias from float64's 1023 to float16's 15
-			exponentBits = uint16((exponent64 - 1023 + 15) & 0x1f)
-		}
-		// 提取小数位并舍入到10位
-		// Extract fraction bits and round to 10 bits
-		fractionBits = uint16((bits64 >> 42) & 0x3ff)
-	}
-
-	// 组合符号位、指数位和小数位
-	// Combine sign bit, exponent bits and fraction bits
-	result := (signBit << 15) | (exponentBits << 10) | (fractionBits & 0x3ff)
-	byteOrder.PutUint16(buffer, result)
+	byteOrder.PutUint16(buffer, res)
 	return 2, nil
 }
 
@@ -138,51 +106,27 @@ func (f *Float16) Unpack(reader io.Reader, length int, options *Options) error {
 		return err
 	}
 
-	// 解析16位值
-	// Parse 16-bit value
 	value := byteOrder.Uint16(buffer)
-	// 提取符号位、指数位和小数位
-	// Extract sign bit, exponent bits and fraction bits
-	signBit := (value >> 15) & 1
-	exponentBits := int16((value >> 10) & 0x1f)
-	fractionBits := value & 0x3ff
 
-	// 处理特殊值和常规值
-	// Handle special values and regular values
-	switch {
-	case exponentBits == 0x1f && fractionBits != 0:
-		// NaN：指数全1，小数非0
-		// NaN: all ones in exponent, non-zero fraction
-		*f = Float16(math.NaN())
-	case exponentBits == 0x1f:
-		// 无穷大：指数全1，小数为0
-		// Infinity: all ones in exponent, zero fraction
-		*f = Float16(math.Inf(int(signBit)*-2 + 1))
-	case exponentBits == 0 && fractionBits == 0:
-		// 处理带符号的零
-		// Handle signed zero
-		if signBit == 1 {
-			*f = Float16(math.Copysign(0, -1))
-		} else {
-			*f = 0
+	sign := uint64(value>>15) & 1
+	exp16 := (value >> 10) & 0x1f
+	mant16 := value & 0x3ff
+
+	var bits64 uint64
+	if exp16 == 0x1f { // Inf or NaN
+		bits64 = sign<<63 | uint64(0x7ff)<<52
+		if mant16 != 0 {
+			bits64 |= 1 << 51 // Make it a quiet NaN
 		}
-	default:
-		// 转换为 float64 格式
-		// Convert to float64 format
-		var bits64 uint64
-		// 设置符号位
-		// Set sign bit
-		bits64 |= uint64(signBit) << 63
-		// 设置小数位
-		// Set fraction bits
-		bits64 |= uint64(fractionBits) << 42
-		if exponentBits > 0 {
-			// 调整指数偏移：从float16的15调整到float64的1023
-			// Adjust exponent bias from float16's 15 to float64's 1023
-			bits64 |= uint64(exponentBits-15+1023) << 52
-		}
-		*f = Float16(math.Float64frombits(bits64))
+	} else if exp16 == 0 { // Zero or subnormal (flushed to zero)
+		bits64 = sign << 63
+	} else { // Normal
+		exp64 := uint64(exp16) + 1023 - 15
+		mant64 := uint64(mant16)
+		bits64 = sign<<63 | exp64<<52 | mant64<<42
 	}
+
+	*f = Float16(math.Float64frombits(bits64))
 	return nil
 }
 

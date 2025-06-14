@@ -23,6 +23,8 @@ import (
 	"reflect"
 )
 
+var packSlicePool = NewBytesSlicePool(0)
+
 // Pack 使用默认选项将数据打包到写入器中
 // 这是一个便捷方法，内部调用 PackWithOptions
 //
@@ -63,7 +65,11 @@ func PackWithOptions(writer io.Writer, data interface{}, options *Options) error
 	// 预分配精确大小的缓冲区
 	// Pre-allocate buffer with exact size
 	bufferSize := packer.Sizeof(value, options)
-	buffer := make([]byte, bufferSize)
+	// pooledBuffer := acquireBytesBuffer(bufferSize)
+	// buffer := (*pooledBuffer)[:bufferSize]
+	// defer releaseBytesBuffer(pooledBuffer)
+	// memclr(buffer)
+	buffer := packSlicePool.GetSlice(bufferSize)
 
 	// 打包数据到缓冲区
 	// Pack data into buffer
