@@ -15,7 +15,9 @@ import (
 	"reflect"
 )
 
-var packSlicePool = NewBytesSlicePool(0)
+// packingSlicePool 是用于打包和解包的切片池
+// 用于存储和重用字节切片, 提高性能
+var packingSlicePool = NewBytesSlicePool(0)
 
 // Pack 使用默认选项将数据打包到写入器中
 // 这是一个便捷方法，内部调用 PackWithOptions
@@ -43,7 +45,7 @@ func PackWithOptions(writer io.Writer, data interface{}, options *Options) error
 	}
 
 	bufferSize := packer.Sizeof(value, options)
-	buffer := packSlicePool.GetSlice(bufferSize)
+	buffer := packingSlicePool.GetSlice(bufferSize)
 
 	if _, err := packer.Pack(buffer, value, options); err != nil {
 		return fmt.Errorf("packing failed: %w", err)
