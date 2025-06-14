@@ -4,26 +4,20 @@ import (
 	"bytes"
 	"encoding/binary"
 	"reflect"
+	"runtime"
 	"sync"
 	"sync/atomic"
 )
 
 // MaxBufferCapSize 定义了缓冲区的最大容量限制
 // 超过此限制的缓冲区不会被放入对象池
-//
-// MaxBufferCapSize defines the maximum capacity limit for buffers
-// Buffers exceeding this limit will not be put into the object pool
 const MaxBufferCapSize = 1 << 20
 
 // MaxBytesSliceSize 定义了字节切片的最大容量限制
 // 超过此限制的字节切片不会被放入对象池
-//
-// MaxBytesSliceSize defines the maximum capacity limit for byte slices
-// Byte slices exceeding this limit will not be put into the object pool
 const MaxBytesSliceSize = 4096
 
 // bufferPool 用于减少[]byte的内存分配
-// bufferPool is used to reduce allocations when []byte is used
 var bufferPool = sync.Pool{
 	New: func() interface{} {
 		return bytes.NewBuffer(make([]byte, 0, 1024))
@@ -31,18 +25,16 @@ var bufferPool = sync.Pool{
 }
 
 // fieldPool 是 Field 对象的全局池
-// fieldPool is a global pool for Field objects
 var fieldPool = sync.Pool{
 	New: func() interface{} {
 		return &Field{
 			Length:    1,
-			ByteOrder: binary.BigEndian, // 默认使用大端字节序 / Default to big-endian
+			ByteOrder: binary.BigEndian, // 默认使用大端字节序
 		}
 	},
 }
 
 // sizeofMapPool 是用于复用 sizeofMap 的对象池
-// sizeofMapPool is an object pool for reusing sizeofMap
 var sizeofMapPool = sync.Pool{
 	New: func() interface{} {
 		return make(map[string][]int)
@@ -50,19 +42,16 @@ var sizeofMapPool = sync.Pool{
 }
 
 // acquireSizeofMap 从对象池获取一个 sizeofMap
-// acquireSizeofMap gets a sizeofMap from the pool
 func acquireSizeofMap() map[string][]int {
 	return sizeofMapPool.Get().(map[string][]int)
 }
 
 // releaseSizeofMap 将 sizeofMap 放回对象池
-// releaseSizeofMap puts a sizeofMap back to the pool
 func releaseSizeofMap(m map[string][]int) {
 	if m == nil {
 		return
 	}
 	// 清空 map
-	// Clear the map
 	for k := range m {
 		delete(m, k)
 	}
@@ -70,13 +59,11 @@ func releaseSizeofMap(m map[string][]int) {
 }
 
 // acquireBuffer 从对象池获取缓冲区
-// acquireBuffer gets a buffer from the pool
 func acquireBuffer() *bytes.Buffer {
 	return bufferPool.Get().(*bytes.Buffer)
 }
 
 // releaseBuffer 将缓冲区放回对象池
-// releaseBuffer returns a buffer to the pool
 func releaseBuffer(buf *bytes.Buffer) {
 	if buf == nil || buf.Cap() > MaxBufferCapSize {
 		return
@@ -87,19 +74,16 @@ func releaseBuffer(buf *bytes.Buffer) {
 }
 
 // acquireField 从对象池获取一个 Field 对象
-// acquireField gets a Field object from the pool
 func acquireField() *Field {
 	return fieldPool.Get().(*Field)
 }
 
 // releaseField 将 Field 对象放回对象池
-// releaseField puts a Field object back to the pool
 func releaseField(f *Field) {
 	if f == nil {
 		return
 	}
 	// 重置字段状态
-	// Reset field state
 	f.Name = ""
 	f.IsPointer = false
 	f.Index = 0
@@ -118,7 +102,6 @@ func releaseField(f *Field) {
 }
 
 // releaseFields 将 Fields 切片中的所有 Field 对象放回对象池
-// releaseFields puts all Field objects in a Fields slice back to the pool
 func releaseFields(fields Fields) {
 	if fields == nil {
 		return
@@ -130,24 +113,17 @@ func releaseFields(fields Fields) {
 
 // BytesSlicePool 是一个用于管理共享字节切片的结构体
 // 它提供了线程安全的切片分配和重用功能
-//
-// BytesSlicePool is a structure for managing shared byte slices
-// It provides thread-safe slice allocation and reuse functionality
 type BytesSlicePool struct {
-	bytes  []byte     // 底层字节数组 / underlying byte array
-	offset int32      // 当前偏移量 / current offset position
-	size   int        // 当前块大小 / current block size
-	mu     sync.Mutex // 互斥锁用于保护并发访问 / mutex for protecting concurrent access
+	bytes  []byte     // 底层字节数组
+	offset int32      // 当前偏移量
+	size   int        // 当前块大小
+	mu     sync.Mutex // 互斥锁用于保护并发访问
 }
 
 // NewBytesSlicePool 创建一个新的 BytesSlicePool 实例
 // 初始化时，会分配一个 4096 字节的字节数组
-//
-// NewBytesSlicePool creates a new BytesSlicePool instance
-// Initializes with a 4096-byte byte array
 func NewBytesSlicePool(size int) *BytesSlicePool {
 	// 如果 size 小于等于 0 或者大于 MaxBytesSliceSize，则使用 MaxBytesSliceSize
-	// If size is less than or equal to 0 or greater than MaxBytesSliceSize, use MaxBytesSliceSize
 	if size > MaxBytesSliceSize || size <= 0 {
 		size = MaxBytesSliceSize
 	}
@@ -162,47 +138,50 @@ func NewBytesSlicePool(size int) *BytesSlicePool {
 
 // GetSlice 返回指定大小的字节切片
 // 如果当前块空间不足，会分配新的块并重置偏移量
-//
-// GetSlice returns a byte slice of specified size
-// If current block has insufficient space, allocates new block and resets offset
 func (b *BytesSlicePool) GetSlice(size int) []byte {
 	// 如果请求的大小超过了最大限制，直接分配新的切片
-	// If the requested size exceeds the maximum limit, allocate a new slice directly
 	if size > b.size {
 		return make([]byte, size)
 	}
 
-	// 使用原子操作获取当前偏移量
-	// Use atomic operation to get current offset
-	offset := atomic.LoadInt32(&b.offset)
+	// 快速路径：尝试有限次数的原子操作，使用退避策略减少 CPU 压力
+	for i := 0; i < 4; i++ { // 最多尝试 4 次 / Maximum 4 attempts
+		currentOffset := atomic.LoadInt32(&b.offset)
 
-	// 检查剩余空间是否足够
-	// Check if remaining space is sufficient
-	if int(offset)+size > b.size {
-		// 使用 CAS 操作尝试重置偏移量
-		// Use CAS operation to try reset offset
-		if atomic.CompareAndSwapInt32(&b.offset, offset, 0) {
-			// 成功重置偏移量，分配新的内存块
-			// Successfully reset offset, allocate new memory block
-			b.bytes = make([]byte, b.size)
+		if int(currentOffset)+size > b.size {
+			break
 		}
-		// 重新获取偏移量
-		// Re-acquire offset
-		offset = atomic.LoadInt32(&b.offset)
+
+		newOffset := currentOffset + int32(size)
+		if atomic.CompareAndSwapInt32(&b.offset, currentOffset, newOffset) {
+			return b.bytes[currentOffset:newOffset]
+		}
+
+		// 简单的退避策略，防止 CPU 过热
+		if i > 0 {
+			for j := 0; j < (1 << i); j++ {
+				// 让出 CPU，允许其他 goroutine 执行
+				runtime.Gosched()
+			}
+		}
 	}
 
-	// 使用 CAS 操作更新偏移量
-	// Use CAS operation to update offset
-	for {
-		currentOffset := offset
-		nextOffset := currentOffset + int32(size)
-		if atomic.CompareAndSwapInt32(&b.offset, currentOffset, nextOffset) {
-			// 成功更新偏移量，返回切片
-			// Successfully updated offset, return slice
-			return b.bytes[currentOffset:nextOffset]
-		}
-		// CAS 失败，重新获取偏移量并重试
-		// CAS failed, re-acquire offset and retry
-		offset = atomic.LoadInt32(&b.offset)
+	// 慢路径：多次尝试失败或空间不足时使用
+	return b.getSliceSlow(size)
+}
+
+// getSliceSlow 是 GetSlice 的慢路径实现
+// 使用互斥锁保护重置操作，减少竞争
+func (b *BytesSlicePool) getSliceSlow(size int) []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if int(b.offset)+size > b.size {
+		b.bytes = make([]byte, b.size)
+		b.offset = 0
 	}
+	start := b.offset
+	b.offset += int32(size)
+
+	return b.bytes[start:b.offset]
 }
