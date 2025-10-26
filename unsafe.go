@@ -35,6 +35,13 @@ func unsafeBytes2String(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
+// unsafeString2Bytes 使用 unsafe 将字符串转换为字节切片, 避免内存拷贝
+func unsafeString2Bytes(s string) []byte {
+	x := (*[2]uintptr)(unsafe.Pointer(&s))
+	h := [3]uintptr{x[0], x[1], x[1]}
+	return *(*[]byte)(unsafe.Pointer(&h))
+}
+
 // unsafeSetSlice 使用 unsafe 直接设置切片的底层数据, 避免内存拷贝
 func unsafeSetSlice(fieldValue reflect.Value, buffer []byte, length int) {
 	sh := (*unsafeSliceHeader)(unsafe.Pointer(fieldValue.UnsafeAddr()))
