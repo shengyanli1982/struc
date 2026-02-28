@@ -72,6 +72,8 @@ func parseStrucTag(fieldTag reflect.StructTag) *strucTag {
 // arrayLengthParseRegex 用于匹配数组长度的正则表达式: [数字]
 var arrayLengthParseRegex = regexp.MustCompile(`^\[(\d*)\]`)
 
+var customBinaryerType = reflect.TypeOf((*CustomBinaryer)(nil)).Elem()
+
 // parseStructField 解析单个结构体字段
 func parseStructField(structField reflect.StructField) (fieldDesc *Field, fieldTag *strucTag, err error) {
 	fieldTag = parseStrucTag(structField.Tag)
@@ -101,8 +103,12 @@ func parseStructField(structField reflect.StructField) (fieldDesc *Field, fieldT
 	}
 
 	// 检查是否为自定义类型
-	tempValue := reflect.New(structField.Type)
-	if _, ok := tempValue.Interface().(CustomBinaryer); ok {
+	fieldType := structField.Type
+	implementsCustom := fieldType.Implements(customBinaryerType)
+	if !implementsCustom && fieldType.Kind() != reflect.Ptr {
+		implementsCustom = reflect.PointerTo(fieldType).Implements(customBinaryerType)
+	}
+	if implementsCustom {
 		fieldDesc.Type = CustomType
 		return
 	}
@@ -228,27 +234,32 @@ func parseFieldsLocked(structValue reflect.Value) (Fields, error) {
 		}
 
 		if fieldTag.Skip || !structValue.Field(i).CanSet() {
+			releaseField(fieldDesc)
 			continue
 		}
 
 		fieldDesc.Index = i
 
 		if err := handleSizeofTag(fieldDesc, fieldTag, structType, field, sizeofMap); err != nil {
+			releaseField(fieldDesc)
 			releaseFields(fields)
 			return nil, err
 		}
 
 		if err := handleSizefromTag(fieldDesc, fieldTag, structType, field, sizeofMap); err != nil {
+			releaseField(fieldDesc)
 			releaseFields(fields)
 			return nil, err
 		}
 
 		if err := validateSliceLength(fieldDesc, field); err != nil {
+			releaseField(fieldDesc)
 			releaseFields(fields)
 			return nil, err
 		}
 
 		if err := handleNestedStruct(fieldDesc, field); err != nil {
+			releaseField(fieldDesc)
 			releaseFields(fields)
 			return nil, err
 		}
