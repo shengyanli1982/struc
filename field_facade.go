@@ -8,7 +8,7 @@ import (
 // 通过组合各个职责分离的组件，提供统一的 Field 接口
 // 保持与现有 Field 类相同的接口，确保向后兼容
 type FieldFacade struct {
-	descriptor    *FieldDescriptor
+	descriptor     *FieldDescriptor
 	sizeCalculator FieldSizeCalculator
 	packer         FieldPacker
 	unpacker       FieldUnpacker
@@ -17,7 +17,7 @@ type FieldFacade struct {
 // NewFieldFacade 创建一个新的 Field 外观类
 func NewFieldFacade(descriptor *FieldDescriptor) *FieldFacade {
 	return &FieldFacade{
-		descriptor:    descriptor,
+		descriptor:     descriptor,
 		sizeCalculator: NewFieldSizeCalculator(descriptor),
 		packer:         NewFieldPacker(descriptor),
 		unpacker:       NewFieldUnpacker(descriptor),

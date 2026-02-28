@@ -26,9 +26,9 @@ type TypeRegistry struct {
 
 // CustomTypeInfo 包含自定义类型的注册信息
 type CustomTypeInfo struct {
-	Name     string
-	SizeFunc func(options *Options) int
-	PackFunc func(value reflect.Value, buffer []byte, options *Options) (int, error)
+	Name       string
+	SizeFunc   func(options *Options) int
+	PackFunc   func(value reflect.Value, buffer []byte, options *Options) (int, error)
 	UnpackFunc func(buffer []byte, value reflect.Value, options *Options) error
 }
 
