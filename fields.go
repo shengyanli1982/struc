@@ -133,13 +133,13 @@ func (f Fields) Release() {
 // unpackStruct 处理结构体类型的解包
 func (f Fields) unpackStruct(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options) error {
 	if field.IsSlice {
-		return f.unpackStructSlice(reader, fieldValue, fieldLength, field.IsArray, options)
+		return f.unpackStructSlice(reader, fieldValue, field.NestFields, fieldLength, field.IsArray, options)
 	}
-	return f.unpackSingleStruct(reader, fieldValue, options)
+	return f.unpackSingleStruct(reader, fieldValue, field.NestFields, options)
 }
 
 // unpackStructSlice 处理结构体切片的解包
-func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, fieldLength int, isArray bool, options *Options) error {
+func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, nested Fields, fieldLength int, isArray bool, options *Options) error {
 	// 如果是数组则使用原值, 否则创建切片
 	sliceValue := fieldValue
 	if !isArray {
@@ -148,9 +148,13 @@ func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, fi
 
 	for i := 0; i < fieldLength; i++ {
 		elementValue := sliceValue.Index(i)
-		fields, err := parseFields(elementValue)
-		if err != nil {
-			return err
+		fields := nested
+		if fields == nil {
+			var err error
+			fields, err = parseFields(elementValue)
+			if err != nil {
+				return err
+			}
 		}
 		if err := fields.Unpack(reader, elementValue, options); err != nil {
 			return err
@@ -164,10 +168,14 @@ func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, fi
 }
 
 // unpackSingleStruct 处理单个结构体的解包
-func (f Fields) unpackSingleStruct(reader io.Reader, fieldValue reflect.Value, options *Options) error {
-	fields, err := parseFields(fieldValue)
-	if err != nil {
-		return err
+func (f Fields) unpackSingleStruct(reader io.Reader, fieldValue reflect.Value, nested Fields, options *Options) error {
+	fields := nested
+	if fields == nil {
+		var err error
+		fields, err = parseFields(fieldValue)
+		if err != nil {
+			return err
+		}
 	}
 	return fields.Unpack(reader, fieldValue, options)
 }

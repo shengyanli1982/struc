@@ -224,16 +224,16 @@ func (f *Field) packPaddingBytes(buffer []byte, length int) (int, error) {
 
 // packString 打包字符串或字节切片到缓冲区
 func (f *Field) packString(buffer []byte, fieldValue reflect.Value) (int, error) {
-	var data []byte
 	switch f.kind {
 	case reflect.String:
-		data = []byte(fieldValue.String())
+		str := fieldValue.String()
+		copy(buffer, str)
+		return len(str), nil
 	default:
-		data = fieldValue.Bytes()
+		data := fieldValue.Bytes()
+		copy(buffer, data)
+		return len(data), nil
 	}
-	dataSize := len(data)
-	copy(buffer, data)
-	return dataSize, nil
 }
 
 // packCustom 打包自定义类型到缓冲区
@@ -256,13 +256,11 @@ func (f *Field) packSliceValue(buffer []byte, fieldValue reflect.Value, length i
 
 	// 对字节切片和字符串类型进行优化处理
 	if !f.IsArray && resolvedType == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
-		var data []byte
 		if f.kind == reflect.String {
-			data = []byte(fieldValue.String())
+			copy(buffer, fieldValue.String())
 		} else {
-			data = fieldValue.Bytes()
+			copy(buffer, fieldValue.Bytes())
 		}
-		copy(buffer, data)
 		if dataLength < length {
 			memclr(buffer[dataLength:totalSize])
 		}

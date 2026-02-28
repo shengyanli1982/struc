@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"strconv"
 )
 
 // 格式映射表定义了 Go 类型到二进制格式字符的映射关系
@@ -131,15 +132,12 @@ func (s *formatState) processField(field *Field) error {
 		return err
 	}
 
-	tmpBuf := acquireBuffer()
-	defer releaseBuffer(tmpBuf)
-	if err := formatField(tmpBuf, field); err != nil {
+	beforeLen := s.buffer.Len()
+	if err := formatField(s.buffer, field); err != nil {
 		return err
 	}
 
-	fieldFormat := tmpBuf.String()
-	if fieldFormat != "" {
-		s.buffer.WriteString(fieldFormat)
+	if s.buffer.Len() > beforeLen {
 		s.isFirst = false
 	}
 
@@ -161,9 +159,7 @@ func (s *formatState) handleEndianness(field *Field, startPos int) error {
 		s.writeEndianness(field.ByteOrder)
 	} else if s.lastEndian >= 0 && startPos == s.lastEndian+1 {
 		// 如果上一个字节序标记后没有任何有效字符，直接替换
-		oldStr := s.buffer.String()
-		s.buffer.Reset()
-		s.buffer.WriteString(oldStr[:s.lastEndian])
+		s.buffer.Truncate(s.lastEndian)
 		s.writeEndianness(field.ByteOrder)
 	} else {
 		s.writeEndianness(field.ByteOrder)
@@ -228,12 +224,14 @@ func formatArrayField(buf *bytes.Buffer, field *Field) error {
 	}
 
 	if field.Type == Pad {
-		fmt.Fprintf(buf, "%d%s", field.Length, formatMap[Pad])
+		writeInt(buf, field.Length)
+		buf.WriteString(formatMap[Pad])
 		return nil
 	}
 
 	if baseType == Uint8 || baseType == String || field.Type == String {
-		fmt.Fprintf(buf, "%d%s", field.Length, formatMap[String])
+		writeInt(buf, field.Length)
+		buf.WriteString(formatMap[String])
 		return nil
 	}
 
@@ -263,13 +261,15 @@ func formatBasicField(buf *bytes.Buffer, field *Field) error {
 	switch field.Type {
 	case String:
 		if field.Length > 0 {
-			fmt.Fprintf(buf, "%d%s", field.Length, formatChar)
+			writeInt(buf, field.Length)
+			buf.WriteString(formatChar)
 		} else if len(field.Sizefrom) == 0 {
 			return fmt.Errorf("field `%s` is a string with no length or sizeof field", field.Name)
 		}
 	case Pad:
 		if field.Length > 0 {
-			fmt.Fprintf(buf, "%d%s", field.Length, formatChar)
+			writeInt(buf, field.Length)
+			buf.WriteString(formatChar)
 		} else {
 			buf.WriteString(formatChar)
 		}
@@ -277,4 +277,10 @@ func formatBasicField(buf *bytes.Buffer, field *Field) error {
 		buf.WriteString(formatChar)
 	}
 	return nil
+}
+
+func writeInt(buf *bytes.Buffer, n int) {
+	var tmp [32]byte
+	b := strconv.AppendInt(tmp[:0], int64(n), 10)
+	buf.Write(b)
 }
