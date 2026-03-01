@@ -7,6 +7,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/struc/v2)](https://goreportcard.com/report/github.com/shengyanli1982/struc/v2)
 [![Build Status](https://github.com/shengyanli1982/struc/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/struc/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/struc/v2.svg)](https://pkg.go.dev/github.com/shengyanli1982/struc/v2)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/shengyanli1982/struc)
 
 一个高性能的 Go 二进制数据序列化库，采用 C 风格的结构体定义。
 
@@ -166,14 +167,14 @@ type ByteOrderTypes struct {
 
 ```go
 type SpecialTypes struct {
-    // 在打包/解包时跳过此字段（二进制中保留空间）
+    // 在打包/解包时忽略此字段（不参与二进制布局）
     Ignored  int    `struc:"skip"`
-    // 完全忽略此字段（不包含在二进制中）
+    // `skip` 的别名（同样是完全忽略该字段）
     Private  string `struc:"-"`
     // 从其他字段获取大小引用
     Data     []byte `struc:"sizefrom=Size"`
-    // 自定义类型实现
-    YourCustomType   CustomBinaryer
+    // 自定义类型实现（必须是实现了 CustomBinaryer 的具体类型）
+    YourCustomType   MyCustomType
 }
 ```
 
@@ -183,10 +184,14 @@ type SpecialTypes struct {
 - `big`/`little`：字节序指定
 - `sizeof=Field`：指定此字段追踪另一个字段的大小
 - `sizefrom=Field`：指定此字段的大小由另一个字段追踪
-- `skip`：在打包/解包时跳过此字段（二进制中保留空间）
-- `-`：完全忽略此字段（不包含在二进制中）
+- `skip`：在打包/解包时忽略此字段（不会写入/读取任何字节）。如果你需要“占位/保留空间”，请使用 `[N]pad`。
+- `-`：`skip` 的别名（同样是完全忽略该字段）
 - `[N]type`：长度为 N 的固定大小类型数组
-- `[]type`：动态大小的类型数组/切片
+- `[]type`：动态大小的类型数组/切片（必须通过 `sizeof` 或 `sizefrom` 提供长度来源）
+
+**重要提示**
+
+- 对 `string` 字段，为了保证 Pack/Unpack 一致，请始终显式指定长度：使用 `[N]byte`（定长）或 `[]byte` 并配合 `sizeof`/`sizefrom`（变长）。否则 `Unpack` 会按 1 字节处理。
 
 #### 为什么不支持 `omitempty`？
 
@@ -245,7 +250,7 @@ type CustomBinaryer interface {
 ```go
 // 使用示例
 type Message struct {
-    Value CustomBinaryer  // 使用自定义类型
+    Value Int3 // 自定义类型（实现 CustomBinaryer 的具体类型）
 }
 
 // Int3 是一个自定义的 3 字节整数类型
@@ -307,9 +312,10 @@ func (i *Int3) String() string {
         buffer := make([]byte, bufferSize)
         ```
 
-    - 解包时，库使用内部 4K 缓冲区来实现高效解包
-    - 解包时，结构体中的切片/字符串字段会直接引用这些内部缓冲区
-    - 只要你的结构体字段还在引用这些缓冲区，它们就会保留在内存中
+    - 解包时，库会使用内部 scratch arena（默认 4KiB）和共享切片池（默认 4KiB）来减少分配
+    - 只有 `string` 字段与非数组的 `[]byte` 字段可能会直接引用内部缓冲区（零拷贝）
+    - 如果单个字段需要超过 4KiB，会为该字段单独分配切片
+    - 只要你的结构体字段还在引用这些内部缓冲区，它们就会保留在内存中
 
         ```go
         type Message struct {
