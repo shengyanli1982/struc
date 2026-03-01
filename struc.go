@@ -128,15 +128,14 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 	}
 
 	var packer Packer
-	var err error
 
 	switch value.Kind() {
 	case reflect.Struct:
-		if fields, err := parseFields(value); err != nil {
+		fieldsPacker, err := parseFieldsPacker(value)
+		if err != nil {
 			return reflect.Value{}, nil, fmt.Errorf("failed to parse fields: %w", err)
-		} else {
-			packer = fields
 		}
+		packer = fieldsPacker
 	default:
 		if !value.IsValid() {
 			return reflect.Value{}, nil, fmt.Errorf("invalid reflect.Value for %+v", data)
@@ -148,5 +147,5 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 		}
 	}
 
-	return value, packer, err
+	return value, packer, nil
 }
