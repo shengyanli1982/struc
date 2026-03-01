@@ -114,6 +114,9 @@ func (f *Field) Size(fieldValue reflect.Value, options *Options) int {
 // calculateStructSize 计算结构体类型的字节大小
 // 处理普通结构体和结构体切片
 func (f *Field) calculateStructSize(fieldValue reflect.Value, options *Options) int {
+	if !f.NestFields.hasActiveFields() {
+		return 0
+	}
 	if f.IsSlice {
 		sliceLength := fieldValue.Len()
 		totalSize := 0
@@ -206,6 +209,9 @@ func (f *Field) packSingleValue(buffer []byte, fieldValue reflect.Value, length 
 
 	switch resolvedType {
 	case Struct:
+		if !f.NestFields.hasActiveFields() {
+			return 0, nil
+		}
 		return f.NestFields.Pack(buffer, fieldValue, options)
 	case String:
 		return f.packString(buffer, fieldValue)
@@ -250,6 +256,9 @@ func (f *Field) packCustom(buffer []byte, fieldValue reflect.Value, options *Opt
 // 处理字节切片和其他类型的切片
 func (f *Field) packSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) (int, error) {
 	resolvedType := f.Type.Resolve(options)
+	if resolvedType == Struct && !f.NestFields.hasActiveFields() {
+		return 0, nil
+	}
 	byteOrder := f.determineByteOrder(options)
 	elementSize := resolvedType.Size()
 	dataLength := fieldValue.Len()

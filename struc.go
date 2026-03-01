@@ -10,6 +10,7 @@
 package struc
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"reflect"
@@ -41,22 +42,79 @@ func PackWithOptions(writer io.Writer, data interface{}, options *Options) error
 	}
 
 	bufferSize := packer.Sizeof(value, options)
+	if bufferSize == 0 {
+		return nil
+	}
+
+	// 针对 bytes.Buffer 的快速路径：避免额外的临时 []byte 分配/复用开销。
+	if buf, ok := writer.(*bytes.Buffer); ok {
+		return packIntoBytesBuffer(buf, packer, value, options, bufferSize)
+	}
+
 	tmp := acquireTempBytes(bufferSize)
 	defer tmp.Release()
 	buffer := tmp.Bytes()
 
 	// 对于自定义类型等可能“少写”的 Pack 实现，必须保证未写入部分为 0，
 	// 以保持与历史实现（新分配/未复用 buffer）一致的输出语义。
-	memclr(buffer)
+	//
+	// fieldsPacker 路径内部会严格按 Sizeof 顺序写满或显式清零补齐，因此无需全量清零。
+	if _, ok := packer.(*fieldsPacker); !ok {
+		memclr(buffer)
+	}
 
-	if _, err := packer.Pack(buffer, value, options); err != nil {
+	n, err := packer.Pack(buffer, value, options)
+	if err != nil {
 		return fmt.Errorf("packing failed: %w", err)
+	}
+	if n < bufferSize {
+		memclr(buffer[n:bufferSize])
 	}
 
 	if _, err = writer.Write(buffer); err != nil {
 		return fmt.Errorf("writing failed: %w", err)
 	}
 
+	return nil
+}
+
+func packIntoBytesBuffer(buf *bytes.Buffer, packer Packer, value reflect.Value, options *Options, bufferSize int) error {
+	buf.Grow(bufferSize)
+
+	dst := buf.AvailableBuffer()
+	if cap(dst) < bufferSize {
+		// 极端情况下回退，保持正确性。
+		tmp := acquireTempBytes(bufferSize)
+		defer tmp.Release()
+		buffer := tmp.Bytes()
+		memclr(buffer)
+		n, err := packer.Pack(buffer, value, options)
+		if err != nil {
+			return fmt.Errorf("packing failed: %w", err)
+		}
+		if n < bufferSize {
+			memclr(buffer[n:bufferSize])
+		}
+		if _, err := buf.Write(buffer); err != nil {
+			return fmt.Errorf("writing failed: %w", err)
+		}
+		return nil
+	}
+
+	dst = dst[:bufferSize]
+	if _, ok := packer.(*fieldsPacker); !ok {
+		memclr(dst)
+	}
+	n, err := packer.Pack(dst, value, options)
+	if err != nil {
+		return fmt.Errorf("packing failed: %w", err)
+	}
+	if n < bufferSize {
+		memclr(dst[n:bufferSize])
+	}
+	if _, err := buf.Write(dst); err != nil {
+		return fmt.Errorf("writing failed: %w", err)
+	}
 	return nil
 }
 

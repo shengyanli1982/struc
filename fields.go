@@ -18,6 +18,15 @@ var unpackBasicTypeSlicePool = NewBytesSlicePool(0)
 // 它提供了字段的序列化、反序列化和大小计算等功能
 type Fields []*Field
 
+func (f Fields) hasActiveFields() bool {
+	for _, field := range f {
+		if field != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // SetByteOrder 为所有字段设置字节序
 // 这会影响字段值的二进制表示方式
 func (f Fields) SetByteOrder(byteOrder binary.ByteOrder) {
@@ -144,6 +153,15 @@ func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, ne
 	sliceValue := fieldValue
 	if !isArray {
 		sliceValue = reflect.MakeSlice(fieldValue.Type(), fieldLength, fieldLength)
+	}
+
+	// 嵌套结构体没有任何可写字段：不需要逐元素解包，但 slice 长度语义仍需保持。
+	// 仅对“已解析/缓存”的 nested 生效；nested==nil 时仍需解析字段信息。
+	if nested != nil && !nested.hasActiveFields() {
+		if !isArray {
+			fieldValue.Set(sliceValue)
+		}
+		return nil
 	}
 
 	for i := 0; i < fieldLength; i++ {
