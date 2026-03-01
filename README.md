@@ -7,6 +7,7 @@ English | [中文](./README_CN.md)
 [![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/struc/v2)](https://goreportcard.com/report/github.com/shengyanli1982/struc/v2)
 [![Build Status](https://github.com/shengyanli1982/struc/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/struc/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/struc/v2.svg)](https://pkg.go.dev/github.com/shengyanli1982/struc/v2)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/shengyanli1982/struc)
 
 A high-performance Go library for binary data serialization with C-style struct definitions.
 
@@ -166,14 +167,14 @@ type ByteOrderTypes struct {
 
 ```go
 type SpecialTypes struct {
-    // Skip this field during packing/unpacking
+    // Ignore this field during packing/unpacking (not included in the binary layout)
     Ignored  int    `struc:"skip"`
-    // Completely ignore this field (won't be included in binary)
+    // Alias of `skip` (ignore this field entirely)
     Private  string `struc:"-"`
     // Size reference from another field
     Data     []byte `struc:"sizefrom=Size"`
-    // Custom type implementation
-    YourCustomType   CustomBinaryer
+    // Custom type implementation (a concrete type that implements CustomBinaryer)
+    YourCustomType   MyCustomType
 }
 ```
 
@@ -183,10 +184,14 @@ Tag Format: `struc:"type,option1,option2"`
 - `big`/`little`: Byte order specification
 - `sizeof=Field`: Specify this field tracks another field's size
 - `sizefrom=Field`: Specify this field's size is tracked by another field
-- `skip`: Skip this field during packing/unpacking (space is reserved in binary)
-- `-`: Completely ignore this field (not included in binary)
+- `skip`: Ignore this field during packing/unpacking (no bytes are written/read). If you need to reserve bytes, use `[N]pad`.
+- `-`: Alias of `skip` (ignore this field entirely)
 - `[N]type`: Fixed-size array of type with length N
-- `[]type`: Dynamic-size array/slice of type
+- `[]type`: Dynamic-size array/slice of type (must have a length source via `sizeof` or `sizefrom`)
+
+**Important notes**
+
+- For `string` fields, always specify the length explicitly using `[N]byte` (fixed length) or `[]byte` together with `sizeof`/`sizefrom` (dynamic length). Otherwise, `Unpack` will treat it as 1 byte.
 
 #### Why `omitempty` is not supported?
 
@@ -245,7 +250,7 @@ For example, implementing a 3-byte integer type:
 ```go
 // Usage example
 type Message struct {
-    Value CustomBinaryer  // Using custom type
+    Value Int3 // Custom type (a concrete type that implements CustomBinaryer)
 }
 
 // Int3 is a custom 3-byte integer type
@@ -307,9 +312,10 @@ Benefits of custom types:
         buffer := make([]byte, bufferSize)
         ```
 
-    - For unpacking, the library uses internal 4K buffers for efficient operations
-    - When unpacking, slice/string fields in your struct will directly reference these internal buffers
-    - These buffers will remain in memory as long as your struct fields reference them
+    - For unpacking, the library uses internal scratch arenas (default 4KiB) and a shared slice pool (default 4KiB) to reduce allocations
+    - Only `string` fields and non-array `[]byte` fields may directly reference internal buffers (zero-copy)
+    - If a single field needs more than 4KiB, a dedicated slice will be allocated for that field
+    - These internal buffers will remain in memory as long as your struct fields reference them
 
         ```go
         type Message struct {
