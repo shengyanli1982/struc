@@ -21,6 +21,8 @@ A high-performance Go library for binary data serialization with C-style struct 
 
 ## Installation
 
+Requires Go 1.21+.
+
 ```bash
 go get github.com/shengyanli1982/struc/v2
 ```
@@ -376,21 +378,21 @@ goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
 cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12          3284715               359.8 ns/op           137 B/op          3 allocs/op
-BenchmarkSliceEncode-12          3207763               360.8 ns/op           137 B/op          3 allocs/op
-BenchmarkArrayDecode-12          6898822               173.6 ns/op            73 B/op          2 allocs/op
-BenchmarkSliceDecode-12          5148556               231.6 ns/op           113 B/op          4 allocs/op
-BenchmarkEncode-12               3558788               337.6 ns/op            55 B/op          1 allocs/op
-BenchmarkStdlibEncode-12        11377178               103.0 ns/op            24 B/op          1 allocs/op
-BenchmarkManualEncode-12        52396255                22.70 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               3752067               317.0 ns/op            55 B/op          1 allocs/op
-BenchmarkStdlibDecode-12         7442155               160.1 ns/op            32 B/op          2 allocs/op
-BenchmarkManualDecode-12        100000000               10.84 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12            772756              1504 ns/op             210 B/op          1 allocs/op
-BenchmarkFullDecode-12            734034              1629 ns/op             279 B/op          4 allocs/op
-BenchmarkFieldPool-12            8692514               136.9 ns/op            52 B/op          1 allocs/op
-BenchmarkGetFormatString/Simple-12              10973143               109.2 ns/op             5 B/op          1 allocs/op
-BenchmarkGetFormatString/Complex-12              5895889               189.9 ns/op            16 B/op          1 allocs/op
+BenchmarkArrayEncode-12        	 8114917	       130.0 ns/op	     112 B/op	       2 allocs/op
+BenchmarkSliceEncode-12        	 8601964	       139.6 ns/op	     112 B/op	       2 allocs/op
+BenchmarkArrayDecode-12        	12434601	        96.10 ns/op	      49 B/op	       1 allocs/op
+BenchmarkSliceDecode-12        	 7183400	       162.6 ns/op	      89 B/op	       3 allocs/op
+BenchmarkEncode-12             	 5388861	       224.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkStdlibEncode-12       	11096510	       109.9 ns/op	      24 B/op	       1 allocs/op
+BenchmarkManualEncode-12       	51888301	        24.37 ns/op	      64 B/op	       1 allocs/op
+BenchmarkDecode-12             	 5058211	       236.6 ns/op	       8 B/op	       0 allocs/op
+BenchmarkStdlibDecode-12       	 6677826	       166.6 ns/op	      32 B/op	       2 allocs/op
+BenchmarkManualDecode-12       	100000000	        11.36 ns/op	       8 B/op	       1 allocs/op
+BenchmarkFullEncode-12         	  764058	      1530 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFullDecode-12         	  762315	      1560 ns/op	     125 B/op	       3 allocs/op
+BenchmarkFieldPool-12          	11020750	       109.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetFormatString/Simple-12         	11160381	       109.9 ns/op	       5 B/op	       1 allocs/op
+BenchmarkGetFormatString/Complex-12        	 6345489	       189.1 ns/op	      16 B/op	       1 allocs/op
 ```
 
 ## License
