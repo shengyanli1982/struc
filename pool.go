@@ -3,6 +3,7 @@ package struc
 import (
 	"bytes"
 	"encoding/binary"
+	"math/bits"
 	"reflect"
 	"runtime"
 	"sync"
@@ -17,11 +18,161 @@ const MaxBufferCapSize = 1 << 20
 // 超过此限制的字节切片不会被放入对象池
 const MaxBytesSliceSize = 4096
 
+// MaxTempBytesSize 定义可归还临时 []byte 的最大容量限制。
+// 该池仅用于 Pack 侧与 Unpack 的 scratch buffer（不会被零拷贝借用）。
+const MaxTempBytesSize = 1 << 16 // 64KiB
+
+// minTempBytesSize 定义可归还临时 []byte 的最小 size class。
+const minTempBytesSize = 64
+
+// tempBytesPools 是按 size class 划分的临时缓冲池。
+// 注意：sync.Pool 存放非指针的 []byte 会触发 boxing 分配，因此这里存放 *[]byte。
+var tempBytesPools = [...]sync.Pool{
+	{New: func() interface{} { b := make([]byte, 1<<6); return &b }},  // 64
+	{New: func() interface{} { b := make([]byte, 1<<7); return &b }},  // 128
+	{New: func() interface{} { b := make([]byte, 1<<8); return &b }},  // 256
+	{New: func() interface{} { b := make([]byte, 1<<9); return &b }},  // 512
+	{New: func() interface{} { b := make([]byte, 1<<10); return &b }}, // 1KiB
+	{New: func() interface{} { b := make([]byte, 1<<11); return &b }}, // 2KiB
+	{New: func() interface{} { b := make([]byte, 1<<12); return &b }}, // 4KiB
+	{New: func() interface{} { b := make([]byte, 1<<13); return &b }}, // 8KiB
+	{New: func() interface{} { b := make([]byte, 1<<14); return &b }}, // 16KiB
+	{New: func() interface{} { b := make([]byte, 1<<15); return &b }}, // 32KiB
+	{New: func() interface{} { b := make([]byte, 1<<16); return &b }}, // 64KiB
+}
+
+func tempBytesSizeClass(size int) (poolIndex int, classSize int, ok bool) {
+	if size <= 0 {
+		return 0, 0, false
+	}
+	if size > MaxTempBytesSize {
+		return 0, 0, false
+	}
+	if size <= minTempBytesSize {
+		return 0, minTempBytesSize, true
+	}
+	// Next power of two.
+	classSize = 1 << bits.Len(uint(size-1))
+	if classSize < minTempBytesSize || classSize > MaxTempBytesSize {
+		return 0, 0, false
+	}
+	// 64 -> 0, 128 -> 1, ..., 64KiB -> 10
+	poolIndex = bits.Len(uint(classSize)) - 7
+	if poolIndex < 0 || poolIndex >= len(tempBytesPools) {
+		return 0, 0, false
+	}
+	return poolIndex, classSize, true
+}
+
+type tempBytes struct {
+	buf       []byte
+	holder    *[]byte
+	poolIndex int
+	classSize int
+}
+
+func (t tempBytes) Bytes() []byte {
+	return t.buf
+}
+
+func (t tempBytes) Release() {
+	if t.holder == nil {
+		return
+	}
+	b := *t.holder
+	if cap(b) < t.classSize {
+		b = make([]byte, t.classSize)
+	}
+	b = b[:t.classSize]
+	*t.holder = b
+	tempBytesPools[t.poolIndex].Put(t.holder)
+}
+
+// acquireTempBytes 获取一个长度为 size 的临时 []byte（容量被限制为 size，禁止扩容 reslice）。
+// 注意：仅用于不会被零拷贝借用的场景（例如 Pack 侧临时 buffer / Unpack scratch）。
+func acquireTempBytes(size int) tempBytes {
+	if poolIndex, classSize, ok := tempBytesSizeClass(size); ok {
+		holder := tempBytesPools[poolIndex].Get().(*[]byte)
+		b := *holder
+		if cap(b) < classSize {
+			b = make([]byte, classSize)
+			*holder = b
+		}
+		if len(b) < classSize {
+			b = b[:classSize]
+			*holder = b
+		}
+		return tempBytes{
+			buf:       b[:size:size],
+			holder:    holder,
+			poolIndex: poolIndex,
+			classSize: classSize,
+		}
+	}
+	b := make([]byte, size)
+	return tempBytes{buf: b}
+}
+
 // bufferPool 用于减少[]byte的内存分配
 var bufferPool = sync.Pool{
 	New: func() interface{} {
 		return bytes.NewBuffer(make([]byte, 0, 1024))
 	},
+}
+
+// scratchArena 用于 Unpack 路径中“不会零拷贝借用 buffer”的字段读取。
+// 该 arena 会在单次 Unpack 调用内被复用，避免为每个字段都向 sync.Pool 取/还 buffer。
+type scratchArena struct {
+	bytes  []byte
+	offset int
+}
+
+const (
+	defaultScratchArenaSize = 4096
+	maxScratchArenaSize     = 1 << 20
+)
+
+var scratchArenaPool = sync.Pool{
+	New: func() interface{} {
+		return &scratchArena{bytes: make([]byte, defaultScratchArenaSize)}
+	},
+}
+
+func acquireScratchArena() *scratchArena {
+	a := scratchArenaPool.Get().(*scratchArena)
+	a.offset = 0
+	return a
+}
+
+func releaseScratchArena(a *scratchArena) {
+	if a == nil {
+		return
+	}
+	a.offset = 0
+	if cap(a.bytes) > maxScratchArenaSize {
+		a.bytes = make([]byte, defaultScratchArenaSize)
+	} else {
+		a.bytes = a.bytes[:cap(a.bytes)]
+	}
+	scratchArenaPool.Put(a)
+}
+
+func (a *scratchArena) Get(size int) []byte {
+	if size <= 0 {
+		return nil
+	}
+	if size > cap(a.bytes) {
+		a.bytes = make([]byte, size)
+		a.offset = 0
+		return a.bytes[:size]
+	}
+	if a.offset+size > cap(a.bytes) {
+		a.offset = 0
+	}
+	a.bytes = a.bytes[:cap(a.bytes)]
+	start := a.offset
+	a.offset += size
+	return a.bytes[start:a.offset]
 }
 
 // fieldPool 是 Field 对象的全局池

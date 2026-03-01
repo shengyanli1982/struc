@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"reflect"
 	"unsafe"
 )
@@ -254,6 +255,25 @@ func (f *Field) packSliceValue(buffer []byte, fieldValue reflect.Value, length i
 	dataLength := fieldValue.Len()
 	totalSize := length * elementSize
 
+	// 数组 [N]byte / [N]uint8：字节序无关，直接拷贝内存，避免逐元素 reflect。
+	if f.IsArray && resolvedType == Uint8 && fieldValue.Kind() == reflect.Array && fieldValue.CanAddr() {
+		if length <= 0 {
+			return 0, nil
+		}
+		// 数组长度固定，len(fieldValue) 应与 length 一致；这里仍以实际值为准。
+		if dataLength > length {
+			dataLength = length
+		}
+		if dataLength > 0 {
+			src := unsafe.Slice((*byte)(unsafe.Pointer(fieldValue.UnsafeAddr())), dataLength)
+			copy(buffer, src)
+		}
+		if dataLength < length {
+			memclr(buffer[dataLength:length])
+		}
+		return length, nil
+	}
+
 	// 对字节切片和字符串类型进行优化处理
 	if !f.IsArray && resolvedType == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
 		if f.kind == reflect.String {
@@ -393,6 +413,19 @@ func (f *Field) unpackPaddingOrStringValue(buffer []byte, fieldValue reflect.Val
 func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
 	resolvedType := f.Type.Resolve(options)
 	byteOrder := f.determineByteOrder(options)
+
+	// 数组 [N]byte / [N]uint8：字节序无关，直接拷贝内存，避免逐元素 reflect。
+	if f.IsArray && resolvedType == Uint8 && fieldValue.Kind() == reflect.Array && fieldValue.CanAddr() {
+		if length <= 0 {
+			return nil
+		}
+		if length > len(buffer) {
+			return io.ErrUnexpectedEOF
+		}
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(fieldValue.UnsafeAddr())), length)
+		copy(dst, buffer[:length])
+		return nil
+	}
 
 	if !f.IsArray && resolvedType == Uint8 && (f.defType == Uint8 || f.kind == reflect.String) {
 		if f.kind == reflect.String {
