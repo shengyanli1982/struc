@@ -16,10 +16,6 @@ import (
 // 10 位: 小数位 (隐含前导1)
 type Float16 float64
 
-// float16SlicePool 为 Float16 操作提供线程安全的缓冲池
-// 使用 BytesSlicePool 管理共享字节切片，减少内存分配
-var float16SlicePool = NewBytesSlicePool(0)
-
 // Pack 将 Float16 值序列化为16位二进制格式
 // 二进制格式遵循 IEEE 754-2008 binary16 规范
 // 支持特殊值：±0, ±∞, NaN
@@ -68,8 +64,7 @@ func (f *Float16) Pack(buffer []byte, options *Options) (int, error) {
 // 二进制格式遵循 IEEE 754-2008 binary16 规范
 // 支持特殊值：±0, ±∞, NaN
 func (f *Float16) Unpack(reader io.Reader, length int, options *Options) error {
-	// 从对象池获取缓冲区
-	buffer := float16SlicePool.GetSlice(2)
+	var buffer [2]byte
 
 	// 获取字节序，如果未指定则使用大端序
 	byteOrder := options.Order
@@ -78,11 +73,11 @@ func (f *Float16) Unpack(reader io.Reader, length int, options *Options) error {
 	}
 
 	// 读取2字节数据
-	if _, err := io.ReadFull(reader, buffer); err != nil {
+	if _, err := io.ReadFull(reader, buffer[:]); err != nil {
 		return err
 	}
 
-	value := byteOrder.Uint16(buffer)
+	value := byteOrder.Uint16(buffer[:])
 
 	sign := uint64(value>>15) & 1
 	exp16 := (value >> 10) & 0x1f

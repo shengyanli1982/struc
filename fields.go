@@ -18,6 +18,15 @@ var unpackBasicTypeSlicePool = NewBytesSlicePool(0)
 // 它提供了字段的序列化、反序列化和大小计算等功能
 type Fields []*Field
 
+func (f Fields) hasActiveFields() bool {
+	for _, field := range f {
+		if field != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // SetByteOrder 为所有字段设置字节序
 // 这会影响字段值的二进制表示方式
 func (f Fields) SetByteOrder(byteOrder binary.ByteOrder) {
@@ -131,19 +140,28 @@ func (f Fields) Release() {
 }
 
 // unpackStruct 处理结构体类型的解包
-func (f Fields) unpackStruct(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options) error {
+func (f Fields) unpackStruct(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options, scratch *scratchArena) error {
 	if field.IsSlice {
-		return f.unpackStructSlice(reader, fieldValue, field.NestFields, fieldLength, field.IsArray, options)
+		return f.unpackStructSlice(reader, fieldValue, field.NestFields, fieldLength, field.IsArray, options, scratch)
 	}
-	return f.unpackSingleStruct(reader, fieldValue, field.NestFields, options)
+	return f.unpackSingleStruct(reader, fieldValue, field.NestFields, options, scratch)
 }
 
 // unpackStructSlice 处理结构体切片的解包
-func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, nested Fields, fieldLength int, isArray bool, options *Options) error {
+func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, nested Fields, fieldLength int, isArray bool, options *Options, scratch *scratchArena) error {
 	// 如果是数组则使用原值, 否则创建切片
 	sliceValue := fieldValue
 	if !isArray {
 		sliceValue = reflect.MakeSlice(fieldValue.Type(), fieldLength, fieldLength)
+	}
+
+	// 嵌套结构体没有任何可写字段：不需要逐元素解包，但 slice 长度语义仍需保持。
+	// 仅对“已解析/缓存”的 nested 生效；nested==nil 时仍需解析字段信息。
+	if nested != nil && !nested.hasActiveFields() {
+		if !isArray {
+			fieldValue.Set(sliceValue)
+		}
+		return nil
 	}
 
 	for i := 0; i < fieldLength; i++ {
@@ -156,7 +174,7 @@ func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, ne
 				return err
 			}
 		}
-		if err := fields.Unpack(reader, elementValue, options); err != nil {
+		if err := fields.unpackWithScratch(reader, elementValue, options, scratch); err != nil {
 			return err
 		}
 	}
@@ -168,7 +186,7 @@ func (f Fields) unpackStructSlice(reader io.Reader, fieldValue reflect.Value, ne
 }
 
 // unpackSingleStruct 处理单个结构体的解包
-func (f Fields) unpackSingleStruct(reader io.Reader, fieldValue reflect.Value, nested Fields, options *Options) error {
+func (f Fields) unpackSingleStruct(reader io.Reader, fieldValue reflect.Value, nested Fields, options *Options, scratch *scratchArena) error {
 	fields := nested
 	if fields == nil {
 		var err error
@@ -177,29 +195,41 @@ func (f Fields) unpackSingleStruct(reader io.Reader, fieldValue reflect.Value, n
 			return err
 		}
 	}
-	return fields.Unpack(reader, fieldValue, options)
+	return fields.unpackWithScratch(reader, fieldValue, options, scratch)
 }
 
 // unpackBasicType 处理基本类型和自定义类型的解包
-func (f Fields) unpackBasicType(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options) error {
+func (f Fields) unpackBasicType(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options, scratch *scratchArena) error {
 	resolvedType := field.Type.Resolve(options)
 	if resolvedType == CustomType {
 		return fieldValue.Addr().Interface().(CustomBinaryer).Unpack(reader, fieldLength, options)
 	}
 
 	dataSize := fieldLength * resolvedType.Size()
-	buffer := unpackBasicTypeSlicePool.GetSlice(dataSize)
+
+	// 仅在“零拷贝借用 buffer”的场景使用 arena（buffer 生命周期必须延长）：
+	// - string 字段：Field.Unpack 会直接把 string 指向 buffer
+	// - 非数组的 []uint8/[]byte 字段：Field.unpackSliceValue 会把 slice 指向 buffer
+	borrowBuffer := field.kind == reflect.String || (!field.IsArray && resolvedType == Uint8 && field.defType == Uint8)
+
+	if borrowBuffer {
+		buffer := unpackBasicTypeSlicePool.GetSlice(dataSize)
+		if _, err := io.ReadFull(reader, buffer); err != nil {
+			return err
+		}
+		return field.Unpack(buffer, fieldValue, fieldLength, options)
+	}
+
+	// 其它类型不需要借用 buffer，使用 per-call 的 scratch arena。
+	buffer := scratch.Get(dataSize)
 
 	if _, err := io.ReadFull(reader, buffer); err != nil {
 		return err
 	}
-
-	return field.Unpack(buffer[:dataSize], fieldValue, fieldLength, options)
+	return field.Unpack(buffer, fieldValue, fieldLength, options)
 }
 
-// Unpack 从 Reader 中读取数据并解包到字段集合中
-// 支持基本类型、结构体、切片和自定义类型
-func (f Fields) Unpack(reader io.Reader, structValue reflect.Value, options *Options) error {
+func (f Fields) unpackWithScratch(reader io.Reader, structValue reflect.Value, options *Options, scratch *scratchArena) error {
 	// 解引用指针，直到获取到非指针类型
 	for structValue.Kind() == reflect.Ptr {
 		structValue = structValue.Elem()
@@ -221,14 +251,22 @@ func (f Fields) Unpack(reader io.Reader, structValue reflect.Value, options *Opt
 		}
 
 		if field.Type == Struct {
-			if err := f.unpackStruct(reader, fieldValue, field, fieldLength, options); err != nil {
+			if err := f.unpackStruct(reader, fieldValue, field, fieldLength, options, scratch); err != nil {
 				return err
 			}
 		} else {
-			if err := f.unpackBasicType(reader, fieldValue, field, fieldLength, options); err != nil {
+			if err := f.unpackBasicType(reader, fieldValue, field, fieldLength, options, scratch); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// Unpack 从 Reader 中读取数据并解包到字段集合中
+// 支持基本类型、结构体、切片和自定义类型
+func (f Fields) Unpack(reader io.Reader, structValue reflect.Value, options *Options) error {
+	scratch := acquireScratchArena()
+	defer releaseScratchArena(scratch)
+	return f.unpackWithScratch(reader, structValue, options, scratch)
 }

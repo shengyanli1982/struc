@@ -10,14 +10,11 @@
 package struc
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"reflect"
 )
-
-// packingSlicePool 是用于打包和解包的切片池
-// 用于存储和重用字节切片, 提高性能
-var packingSlicePool = NewBytesSlicePool(0)
 
 // Pack 使用默认选项将数据打包到写入器中
 // 这是一个便捷方法，内部调用 PackWithOptions
@@ -45,16 +42,79 @@ func PackWithOptions(writer io.Writer, data interface{}, options *Options) error
 	}
 
 	bufferSize := packer.Sizeof(value, options)
-	buffer := packingSlicePool.GetSlice(bufferSize)
+	if bufferSize == 0 {
+		return nil
+	}
 
-	if _, err := packer.Pack(buffer, value, options); err != nil {
+	// 针对 bytes.Buffer 的快速路径：避免额外的临时 []byte 分配/复用开销。
+	if buf, ok := writer.(*bytes.Buffer); ok {
+		return packIntoBytesBuffer(buf, packer, value, options, bufferSize)
+	}
+
+	tmp := acquireTempBytes(bufferSize)
+	defer tmp.Release()
+	buffer := tmp.Bytes()
+
+	// 对于自定义类型等可能“少写”的 Pack 实现，必须保证未写入部分为 0，
+	// 以保持与历史实现（新分配/未复用 buffer）一致的输出语义。
+	//
+	// fieldsPacker 路径内部会严格按 Sizeof 顺序写满或显式清零补齐，因此无需全量清零。
+	if _, ok := packer.(*fieldsPacker); !ok {
+		memclr(buffer)
+	}
+
+	n, err := packer.Pack(buffer, value, options)
+	if err != nil {
 		return fmt.Errorf("packing failed: %w", err)
+	}
+	if n < bufferSize {
+		memclr(buffer[n:bufferSize])
 	}
 
 	if _, err = writer.Write(buffer); err != nil {
 		return fmt.Errorf("writing failed: %w", err)
 	}
 
+	return nil
+}
+
+func packIntoBytesBuffer(buf *bytes.Buffer, packer Packer, value reflect.Value, options *Options, bufferSize int) error {
+	buf.Grow(bufferSize)
+
+	dst := buf.AvailableBuffer()
+	if cap(dst) < bufferSize {
+		// 极端情况下回退，保持正确性。
+		tmp := acquireTempBytes(bufferSize)
+		defer tmp.Release()
+		buffer := tmp.Bytes()
+		memclr(buffer)
+		n, err := packer.Pack(buffer, value, options)
+		if err != nil {
+			return fmt.Errorf("packing failed: %w", err)
+		}
+		if n < bufferSize {
+			memclr(buffer[n:bufferSize])
+		}
+		if _, err := buf.Write(buffer); err != nil {
+			return fmt.Errorf("writing failed: %w", err)
+		}
+		return nil
+	}
+
+	dst = dst[:bufferSize]
+	if _, ok := packer.(*fieldsPacker); !ok {
+		memclr(dst)
+	}
+	n, err := packer.Pack(dst, value, options)
+	if err != nil {
+		return fmt.Errorf("packing failed: %w", err)
+	}
+	if n < bufferSize {
+		memclr(dst[n:bufferSize])
+	}
+	if _, err := buf.Write(dst); err != nil {
+		return fmt.Errorf("writing failed: %w", err)
+	}
 	return nil
 }
 
@@ -126,15 +186,14 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 	}
 
 	var packer Packer
-	var err error
 
 	switch value.Kind() {
 	case reflect.Struct:
-		if fields, err := parseFields(value); err != nil {
+		fieldsPacker, err := parseFieldsPacker(value)
+		if err != nil {
 			return reflect.Value{}, nil, fmt.Errorf("failed to parse fields: %w", err)
-		} else {
-			packer = fields
 		}
+		packer = fieldsPacker
 	default:
 		if !value.IsValid() {
 			return reflect.Value{}, nil, fmt.Errorf("invalid reflect.Value for %+v", data)
@@ -146,5 +205,5 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 		}
 	}
 
-	return value, packer, err
+	return value, packer, nil
 }

@@ -12,14 +12,16 @@
 
 ## 为什么选择 struc v2？
 
--   🚀 **卓越性能**：优化的二进制序列化，支持反射缓存
--   💡 **简洁 API**：基于结构体标签的直观配置，无需样板代码
--   🛡️ **类型安全**：强类型检查和全面的错误处理
--   🔄 **灵活编码**：支持大端和小端字节序
--   📦 **丰富类型支持**：支持原始类型、数组、切片和自定义填充
--   🎯 **零依赖**：纯 Go 实现，无外部依赖
+- 🚀 **卓越性能**：优化的二进制序列化，支持反射缓存
+- 💡 **简洁 API**：基于结构体标签的直观配置，无需样板代码
+- 🛡️ **类型安全**：强类型检查和全面的错误处理
+- 🔄 **灵活编码**：支持大端和小端字节序
+- 📦 **丰富类型支持**：支持原始类型、数组、切片和自定义填充
+- 🎯 **零依赖**：纯 Go 实现，无外部依赖
 
 ## 安装
+
+需要 Go 1.21 及以上版本。
 
 ```bash
 go get github.com/shengyanli1982/struc/v2
@@ -65,21 +67,21 @@ func main() {
 
 ### 1. 丰富的类型支持
 
--   原始类型：`bool`、`int8`-`int64`、`uint8`-`uint64`、`float32`、`float64`
--   复合类型：字符串、字节切片、数组
--   特殊类型：用于对齐的填充字节
+- 原始类型：`bool`、`int8`-`int64`、`uint8`-`uint64`、`float32`、`float64`
+- 复合类型：字符串、字节切片、数组
+- 特殊类型：用于对齐的填充字节
 
 ### 2. 自动大小追踪
 
--   自动管理可变大小字段的长度
--   消除手动大小计算和追踪
--   减少二进制协议实现中的潜在错误
+- 自动管理可变大小字段的长度
+- 消除手动大小计算和追踪
+- 减少二进制协议实现中的潜在错误
 
 ### 3. 性能优化
 
--   反射缓存以提高重复操作性能
--   高效的内存分配
--   优化的编码/解码路径
+- 反射缓存以提高重复操作性能
+- 高效的内存分配
+- 优化的编码/解码路径
 
 ### 4. 智能字段标签
 
@@ -177,33 +179,30 @@ type SpecialTypes struct {
 
 标签格式：`struc:"type,option1,option2"`
 
--   `type`：二进制类型（如 int8、uint16、[4]byte）
--   `big`/`little`：字节序指定
--   `sizeof=Field`：指定此字段追踪另一个字段的大小
--   `sizefrom=Field`：指定此字段的大小由另一个字段追踪
--   `skip`：在打包/解包时跳过此字段（二进制中保留空间）
--   `-`：完全忽略此字段（不包含在二进制中）
--   `[N]type`：长度为 N 的固定大小类型数组
--   `[]type`：动态大小的类型数组/切片
+- `type`：二进制类型（如 int8、uint16、[4]byte）
+- `big`/`little`：字节序指定
+- `sizeof=Field`：指定此字段追踪另一个字段的大小
+- `sizefrom=Field`：指定此字段的大小由另一个字段追踪
+- `skip`：在打包/解包时跳过此字段（二进制中保留空间）
+- `-`：完全忽略此字段（不包含在二进制中）
+- `[N]type`：长度为 N 的固定大小类型数组
+- `[]type`：动态大小的类型数组/切片
 
 #### 为什么不支持 `omitempty`？
 
 与 JSON 序列化可以选择性地省略字段不同，二进制序列化需要严格且固定的字节布局。以下是不支持 `omitempty` 的原因：
 
 1. **固定的二进制布局**
-
     - 二进制协议要求精确的字节定位
     - 每个字段必须占据其预定义的位置和大小
     - 省略字段会破坏字节对齐
 
 2. **解析依赖性**
-
     - 二进制数据是按字节顺序解析的
     - 如果省略字段，字节流会错位
     - 接收端无法正确重建数据结构
 
 3. **协议稳定性**
-
     - 二进制协议需要严格的版本控制
     - 允许可选字段会破坏协议的稳定性
     - 无法保证向后兼容性
@@ -215,9 +214,9 @@ type SpecialTypes struct {
 
 如果你需要标记某些字段为可选，可以考虑以下替代方案：
 
--   使用显式的标志字段来表示有效性
--   为可选字段使用默认值
--   使用 `struc:"-"` 标签完全排除字段不进行序列化
+- 使用显式的标志字段来表示有效性
+- 为可选字段使用默认值
+- 使用 `struc:"-"` 标签完全排除字段不进行序列化
 
 ## 高级用法
 
@@ -280,31 +279,27 @@ func (i *Int3) String() string {
 
 自定义类型的优势：
 
--   完全控制二进制格式
--   支持特殊的数据布局
--   可以实现压缩或加密
--   适合处理遗留系统的特殊格式
+- 完全控制二进制格式
+- 支持特殊的数据布局
+- 可以实现压缩或加密
+- 适合处理遗留系统的特殊格式
 
 ## 最佳实践
 
 1. **使用适当的类型**
-
     - 将 Go 类型与其二进制协议对应物匹配
     - 当大小已知时使用固定大小数组
     - 对动态数据使用带 `sizeof` 的切片
 
 2. **错误处理**
-
     - 始终检查 Pack/Unpack 返回的错误
     - 在处理之前验证数据大小
 
 3. **性能优化**
-
     - 尽可能重用结构体
     - 考虑对频繁使用的结构使用对象池
 
 4. **内存管理**
-
     - 库在打包时，会根据数据大小预分配精确大小的缓冲区
 
         ```go
@@ -383,21 +378,21 @@ goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
 cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12          3288741               366.7 ns/op           137 B/op          4 allocs/op
-BenchmarkSliceEncode-12          3110095               389.8 ns/op           137 B/op          4 allocs/op
-BenchmarkArrayDecode-12          3410102               343.3 ns/op            73 B/op          2 allocs/op
-BenchmarkSliceDecode-12          2904127               423.7 ns/op           113 B/op          4 allocs/op
-BenchmarkEncode-12               3297550               364.5 ns/op            56 B/op          2 allocs/op
-BenchmarkStdlibEncode-12         8496386               139.0 ns/op            24 B/op          1 allocs/op
-BenchmarkManualEncode-12        48760538                24.66 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               3493039               329.7 ns/op            55 B/op          1 allocs/op
-BenchmarkStdlibDecode-12         6607056               176.8 ns/op            32 B/op          2 allocs/op
-BenchmarkManualDecode-12        100000000               11.71 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12           1000000              1546 ns/op             216 B/op          2 allocs/op
-BenchmarkFullDecode-12           1000000              1684 ns/op             279 B/op          4 allocs/op
-BenchmarkFieldPool-12            7039993               162.4 ns/op            56 B/op          2 allocs/op
-BenchmarkGetFormatString/Simple-12               4950135               238.6 ns/op            21 B/op          2 allocs/op
-BenchmarkGetFormatString/Complex-12              2522713               465.0 ns/op            48 B/op          3 allocs/op
+BenchmarkArrayEncode-12          9571850               122.3 ns/op           112 B/op          2 allocs/op
+BenchmarkSliceEncode-12          9085725               132.1 ns/op           112 B/op          2 allocs/op
+BenchmarkArrayDecode-12         13183407                91.15 ns/op           49 B/op          1 allocs/op
+BenchmarkSliceDecode-12          7815796               155.2 ns/op            89 B/op          3 allocs/op
+BenchmarkEncode-12               5601387               218.0 ns/op             0 B/op          0 allocs/op
+BenchmarkStdlibEncode-12        11315949               105.1 ns/op            24 B/op          1 allocs/op
+BenchmarkManualEncode-12        51424236                22.79 ns/op           64 B/op          1 allocs/op
+BenchmarkDecode-12               5165126               233.2 ns/op             8 B/op          0 allocs/op
+BenchmarkStdlibDecode-12         7359375               163.7 ns/op            32 B/op          2 allocs/op
+BenchmarkManualDecode-12        100000000               10.91 ns/op            8 B/op          1 allocs/op
+BenchmarkFullEncode-12            761937              1518 ns/op               0 B/op          0 allocs/op
+BenchmarkFullDecode-12            765120              1538 ns/op             125 B/op          3 allocs/op
+BenchmarkFieldPool-12           11439705               105.7 ns/op             0 B/op          0 allocs/op
+BenchmarkGetFormatString/Simple-12              11294882               105.1 ns/op             5 B/op          1 allocs/op
+BenchmarkGetFormatString/Complex-12              6519446               185.6 ns/op            16 B/op          1 allocs/op
 ```
 
 ## 许可证

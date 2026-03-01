@@ -49,16 +49,16 @@ const (
 
 // errorMessages 定义了错误代码对应的错误消息
 var errorMessages = map[ErrorCode]string{
-	ErrInvalidType:        "invalid type",
-	ErrBufferTooSmall:     "buffer too small",
-	ErrUnsupportedType:    "unsupported type",
-	ErrInvalidOptions:     "invalid options",
-	ErrFieldMismatch:      "field mismatch",
-	ErrCustomTypeFailed:   "custom type operation failed",
-	ErrTypeRegistration:   "type registration failed",
-	ErrSizeCalculation:    "size calculation failed",
-	ErrPackingFailed:      "packing failed",
-	ErrUnpackingFailed:    "unpacking failed",
+	ErrInvalidType:      "invalid type",
+	ErrBufferTooSmall:   "buffer too small",
+	ErrUnsupportedType:  "unsupported type",
+	ErrInvalidOptions:   "invalid options",
+	ErrFieldMismatch:    "field mismatch",
+	ErrCustomTypeFailed: "custom type operation failed",
+	ErrTypeRegistration: "type registration failed",
+	ErrSizeCalculation:  "size calculation failed",
+	ErrPackingFailed:    "packing failed",
+	ErrUnpackingFailed:  "unpacking failed",
 }
 
 // NewError 创建一个新的错误

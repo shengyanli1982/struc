@@ -12,14 +12,16 @@ A high-performance Go library for binary data serialization with C-style struct 
 
 ## Why struc v2?
 
--   🚀 **High Performance**: Optimized binary serialization with reflection caching
--   💡 **Simple API**: Intuitive struct tag-based configuration without boilerplate code
--   🛡️ **Type Safety**: Strong type checking with comprehensive error handling
--   🔄 **Flexible Encoding**: Support for both big and little endian byte orders
--   📦 **Rich Type Support**: Handles primitive types, arrays, slices, and custom padding
--   🎯 **Zero Dependencies**: Pure Go implementation with no external dependencies
+- 🚀 **High Performance**: Optimized binary serialization with reflection caching
+- 💡 **Simple API**: Intuitive struct tag-based configuration without boilerplate code
+- 🛡️ **Type Safety**: Strong type checking with comprehensive error handling
+- 🔄 **Flexible Encoding**: Support for both big and little endian byte orders
+- 📦 **Rich Type Support**: Handles primitive types, arrays, slices, and custom padding
+- 🎯 **Zero Dependencies**: Pure Go implementation with no external dependencies
 
 ## Installation
+
+Requires Go 1.21+.
 
 ```bash
 go get github.com/shengyanli1982/struc/v2
@@ -65,21 +67,21 @@ func main() {
 
 ### 1. Rich Type Support
 
--   Primitive types: `bool`, `int8`-`int64`, `uint8`-`uint64`, `float32`, `float64`
--   Composite types: strings, byte slices, arrays
--   Special types: padding bytes for alignment
+- Primitive types: `bool`, `int8`-`int64`, `uint8`-`uint64`, `float32`, `float64`
+- Composite types: strings, byte slices, arrays
+- Special types: padding bytes for alignment
 
 ### 2. Automatic Size Tracking
 
--   Automatically manages lengths of variable-sized fields
--   Eliminates manual size calculation and tracking
--   Reduces potential errors in binary protocol implementations
+- Automatically manages lengths of variable-sized fields
+- Eliminates manual size calculation and tracking
+- Reduces potential errors in binary protocol implementations
 
 ### 3. Performance Optimizations
 
--   Reflection caching for repeated operations
--   Efficient memory allocation
--   Optimized encoding/decoding paths
+- Reflection caching for repeated operations
+- Efficient memory allocation
+- Optimized encoding/decoding paths
 
 ### 4. Smart Field Tags
 
@@ -177,33 +179,30 @@ type SpecialTypes struct {
 
 Tag Format: `struc:"type,option1,option2"`
 
--   `type`: The binary type (e.g., int8, uint16, [4]byte)
--   `big`/`little`: Byte order specification
--   `sizeof=Field`: Specify this field tracks another field's size
--   `sizefrom=Field`: Specify this field's size is tracked by another field
--   `skip`: Skip this field during packing/unpacking (space is reserved in binary)
--   `-`: Completely ignore this field (not included in binary)
--   `[N]type`: Fixed-size array of type with length N
--   `[]type`: Dynamic-size array/slice of type
+- `type`: The binary type (e.g., int8, uint16, [4]byte)
+- `big`/`little`: Byte order specification
+- `sizeof=Field`: Specify this field tracks another field's size
+- `sizefrom=Field`: Specify this field's size is tracked by another field
+- `skip`: Skip this field during packing/unpacking (space is reserved in binary)
+- `-`: Completely ignore this field (not included in binary)
+- `[N]type`: Fixed-size array of type with length N
+- `[]type`: Dynamic-size array/slice of type
 
 #### Why `omitempty` is not supported?
 
 Unlike JSON serialization where fields can be optionally omitted, binary serialization requires a strict and fixed byte layout. Here's why `omitempty` is not supported:
 
 1. **Fixed Binary Layout**
-
     - Binary protocols require precise byte positioning
     - Each field must occupy its predefined position and size
     - Omitting fields would break the byte alignment
 
 2. **Parsing Dependencies**
-
     - Binary data is parsed sequentially, byte by byte
     - If fields are omitted, the byte stream becomes misaligned
     - The receiving end cannot correctly reconstruct the data structure
 
 3. **Protocol Stability**
-
     - Binary protocols need strict version control
     - Allowing optional fields would break protocol stability
     - Makes it impossible to maintain backward compatibility
@@ -215,9 +214,9 @@ Unlike JSON serialization where fields can be optionally omitted, binary seriali
 
 If you need to mark certain fields as optional, consider these alternatives:
 
--   Use explicit flag fields to indicate validity
--   Use default values for optional fields
--   Use the `struc:"-"` tag to completely exclude fields from serialization
+- Use explicit flag fields to indicate validity
+- Use default values for optional fields
+- Use the `struc:"-"` tag to completely exclude fields from serialization
 
 ## Advanced Usage
 
@@ -280,31 +279,27 @@ func (i *Int3) String() string {
 
 Benefits of custom types:
 
--   Complete control over binary format
--   Support for special data layouts
--   Ability to implement compression or encryption
--   Suitable for handling legacy system formats
+- Complete control over binary format
+- Support for special data layouts
+- Ability to implement compression or encryption
+- Suitable for handling legacy system formats
 
 ## Best Practices
 
 1. **Use Appropriate Types**
-
     - Match Go types with their binary protocol counterparts
     - Use fixed-size arrays when the size is known
     - Use slices with `sizeof` for dynamic data
 
 2. **Error Handling**
-
     - Always check returned errors from Pack/Unpack
     - Validate data sizes before processing
 
 3. **Performance Optimization**
-
     - Reuse structs when possible
     - Consider using pools for frequently used structures
 
 4. **Memory Management**
-
     - When packing, the library pre-allocates a buffer with the exact size needed for the data
 
         ```go
@@ -383,21 +378,21 @@ goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
 cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12          3288741               366.7 ns/op           137 B/op          4 allocs/op
-BenchmarkSliceEncode-12          3110095               389.8 ns/op           137 B/op          4 allocs/op
-BenchmarkArrayDecode-12          3410102               343.3 ns/op            73 B/op          2 allocs/op
-BenchmarkSliceDecode-12          2904127               423.7 ns/op           113 B/op          4 allocs/op
-BenchmarkEncode-12               3297550               364.5 ns/op            56 B/op          2 allocs/op
-BenchmarkStdlibEncode-12         8496386               139.0 ns/op            24 B/op          1 allocs/op
-BenchmarkManualEncode-12        48760538                24.66 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               3493039               329.7 ns/op            55 B/op          1 allocs/op
-BenchmarkStdlibDecode-12         6607056               176.8 ns/op            32 B/op          2 allocs/op
-BenchmarkManualDecode-12        100000000               11.71 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12           1000000              1546 ns/op             216 B/op          2 allocs/op
-BenchmarkFullDecode-12           1000000              1684 ns/op             279 B/op          4 allocs/op
-BenchmarkFieldPool-12            7039993               162.4 ns/op            56 B/op          2 allocs/op
-BenchmarkGetFormatString/Simple-12               4950135               238.6 ns/op            21 B/op          2 allocs/op
-BenchmarkGetFormatString/Complex-12              2522713               465.0 ns/op            48 B/op          3 allocs/op
+BenchmarkArrayEncode-12          9571850               122.3 ns/op           112 B/op          2 allocs/op
+BenchmarkSliceEncode-12          9085725               132.1 ns/op           112 B/op          2 allocs/op
+BenchmarkArrayDecode-12         13183407                91.15 ns/op           49 B/op          1 allocs/op
+BenchmarkSliceDecode-12          7815796               155.2 ns/op            89 B/op          3 allocs/op
+BenchmarkEncode-12               5601387               218.0 ns/op             0 B/op          0 allocs/op
+BenchmarkStdlibEncode-12        11315949               105.1 ns/op            24 B/op          1 allocs/op
+BenchmarkManualEncode-12        51424236                22.79 ns/op           64 B/op          1 allocs/op
+BenchmarkDecode-12               5165126               233.2 ns/op             8 B/op          0 allocs/op
+BenchmarkStdlibDecode-12         7359375               163.7 ns/op            32 B/op          2 allocs/op
+BenchmarkManualDecode-12        100000000               10.91 ns/op            8 B/op          1 allocs/op
+BenchmarkFullEncode-12            761937              1518 ns/op               0 B/op          0 allocs/op
+BenchmarkFullDecode-12            765120              1538 ns/op             125 B/op          3 allocs/op
+BenchmarkFieldPool-12           11439705               105.7 ns/op             0 B/op          0 allocs/op
+BenchmarkGetFormatString/Simple-12              11294882               105.1 ns/op             5 B/op          1 allocs/op
+BenchmarkGetFormatString/Complex-12              6519446               185.6 ns/op            16 B/op          1 allocs/op
 ```
 
 ## License

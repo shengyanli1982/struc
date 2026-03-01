@@ -271,13 +271,27 @@ func parseFieldsLocked(structValue reflect.Value) (Fields, error) {
 
 // parsedStructFieldCache 存储每个结构体类型的已解析字段 (并发安全)
 var (
-	parsedStructFieldCache = sync.Map{}
+	parsedStructFieldCache  = sync.Map{}
+	parsedStructPackerCache = sync.Map{}
 )
+
+// fieldsPacker 用于避免将 Fields（slice header, 24B）装箱进接口导致的分配。
+// 通过缓存 *fieldsPacker，让 prepareValueForPacking 直接拿到指针实现的 Packer。
+type fieldsPacker struct {
+	Fields
+}
 
 // fieldCacheLookup 查找类型的缓存字段
 func fieldCacheLookup(structType reflect.Type) Fields {
 	if cached, ok := parsedStructFieldCache.Load(structType); ok {
 		return cached.(Fields)
+	}
+	return nil
+}
+
+func packerCacheLookup(structType reflect.Type) Packer {
+	if cached, ok := parsedStructPackerCache.Load(structType); ok {
+		return cached.(Packer)
 	}
 	return nil
 }
@@ -298,4 +312,21 @@ func parseFields(structValue reflect.Value) (Fields, error) {
 	parsedStructFieldCache.Store(structType, fields)
 
 	return fields, nil
+}
+
+// parseFieldsPacker 获取结构体类型对应的 Packer（无额外分配）。
+func parseFieldsPacker(structValue reflect.Value) (Packer, error) {
+	structType := structValue.Type()
+	if cached := packerCacheLookup(structType); cached != nil {
+		return cached, nil
+	}
+
+	fields, err := parseFields(structValue)
+	if err != nil {
+		return nil, err
+	}
+
+	p := &fieldsPacker{Fields: fields}
+	parsedStructPackerCache.Store(structType, p)
+	return p, nil
 }
