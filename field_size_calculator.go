@@ -45,7 +45,7 @@ func NewFieldSizeCalculator(descriptor *FieldDescriptor) FieldSizeCalculator {
 // Size 计算字段在二进制格式中占用的字节数
 // 考虑了对齐和填充要求
 func (c *DefaultFieldSizeCalculator) Size(fieldValue reflect.Value, options *Options) int {
-	resolvedType := c.descriptor.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(c.descriptor.Type, options)
 	totalSize := 0
 
 	switch resolvedType {

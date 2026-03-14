@@ -94,7 +94,7 @@ func (f *Field) getIntegerValue(fieldValue reflect.Value) uint64 {
 // Size 计算字段在二进制格式中占用的字节数
 // 考虑了对齐和填充要求
 func (f *Field) Size(fieldValue reflect.Value, options *Options) int {
-	resolvedType := f.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(f.Type, options)
 	totalSize := 0
 
 	switch resolvedType {
@@ -167,7 +167,7 @@ func (f *Field) alignSize(size int, options *Options) int {
 // Pack 将字段值打包到缓冲区中
 // 处理所有类型的字段，包括填充、切片和单个值
 func (f *Field) Pack(buffer []byte, fieldValue reflect.Value, length int, options *Options) (int, error) {
-	if resolvedType := f.Type.Resolve(options); resolvedType == Pad {
+	if resolvedType := resolveTypeForOptions(f.Type, options); resolvedType == Pad {
 		return f.packPaddingBytes(buffer, length)
 	}
 
@@ -184,7 +184,7 @@ func (f *Field) packSingleValue(buffer []byte, fieldValue reflect.Value, length 
 		fieldValue = fieldValue.Elem()
 	}
 
-	resolvedType := f.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(f.Type, options)
 
 	// 优化: 对基本类型进行快速处理
 	if resolvedType.IsBasicType() {
@@ -255,7 +255,7 @@ func (f *Field) packCustom(buffer []byte, fieldValue reflect.Value, options *Opt
 // packSliceValue 打包切片值到缓冲区
 // 处理字节切片和其他类型的切片
 func (f *Field) packSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) (int, error) {
-	resolvedType := f.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(f.Type, options)
 	if resolvedType == Struct && !f.NestFields.hasActiveFields() {
 		return 0, nil
 	}
@@ -394,7 +394,7 @@ func (f *Field) writeFloat(buffer []byte, floatValue float64, resolvedType Type,
 // Unpack 从缓冲区中解包字段值
 // 处理所有类型的字段值的解包
 func (f *Field) Unpack(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
-	resolvedType := f.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(f.Type, options)
 
 	if resolvedType == Pad || f.kind == reflect.String {
 		return f.unpackPaddingOrStringValue(buffer, fieldValue, resolvedType)
@@ -420,7 +420,7 @@ func (f *Field) unpackPaddingOrStringValue(buffer []byte, fieldValue reflect.Val
 // unpackSliceValue 处理切片类型的解包
 // 使用 unsafe 优化切片处理，减少内存拷贝
 func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
-	resolvedType := f.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(f.Type, options)
 	byteOrder := f.determineByteOrder(options)
 
 	// 数组 [N]byte / [N]uint8：字节序无关，直接拷贝内存，避免逐元素 reflect。
@@ -478,7 +478,7 @@ func (f *Field) unpackSingleValue(buffer []byte, fieldValue reflect.Value, lengt
 		fieldValue = fieldValue.Elem()
 	}
 
-	resolvedType := f.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(f.Type, options)
 
 	// 优化: 对基本类型进行快速处理
 	if resolvedType.IsBasicType() {

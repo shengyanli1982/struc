@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // 标签格式示例：struc:"int32,big,sizeof=Data,skip,sizefrom=Len"
@@ -273,7 +274,13 @@ func parseFieldsLocked(structValue reflect.Value) (Fields, error) {
 var (
 	parsedStructFieldCache  = sync.Map{}
 	parsedStructPackerCache = sync.Map{}
+	parsedStructPackerHot   atomic.Pointer[packerHotEntry]
 )
+
+type packerHotEntry struct {
+	structType reflect.Type
+	packer     Packer
+}
 
 // fieldsPacker 用于避免将 Fields（slice header, 24B）装箱进接口导致的分配。
 // 通过缓存 *fieldsPacker，让 prepareValueForPacking 直接拿到指针实现的 Packer。
@@ -317,7 +324,12 @@ func parseFields(structValue reflect.Value) (Fields, error) {
 // parseFieldsPacker 获取结构体类型对应的 Packer（无额外分配）。
 func parseFieldsPacker(structValue reflect.Value) (Packer, error) {
 	structType := structValue.Type()
+	if hot := parsedStructPackerHot.Load(); hot != nil && hot.structType == structType {
+		return hot.packer, nil
+	}
+
 	if cached := packerCacheLookup(structType); cached != nil {
+		parsedStructPackerHot.Store(&packerHotEntry{structType: structType, packer: cached})
 		return cached, nil
 	}
 
@@ -328,5 +340,6 @@ func parseFieldsPacker(structValue reflect.Value) (Packer, error) {
 
 	p := &fieldsPacker{Fields: fields}
 	parsedStructPackerCache.Store(structType, p)
+	parsedStructPackerHot.Store(&packerHotEntry{structType: structType, packer: p})
 	return p, nil
 }

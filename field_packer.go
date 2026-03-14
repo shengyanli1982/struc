@@ -58,7 +58,7 @@ func (p *DefaultFieldPacker) Pack(buffer []byte, fieldValue reflect.Value, lengt
 
 // PackSingleValue 打包单个字段值
 func (p *DefaultFieldPacker) PackSingleValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) (int, error) {
-	resolvedType := p.descriptor.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(p.descriptor.Type, options)
 	byteOrder := p.determineByteOrder(options)
 
 	switch resolvedType {
@@ -91,7 +91,7 @@ func (p *DefaultFieldPacker) PackSingleValue(buffer []byte, fieldValue reflect.V
 
 // PackSliceValue 打包切片字段值
 func (p *DefaultFieldPacker) PackSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) (int, error) {
-	resolvedType := p.descriptor.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(p.descriptor.Type, options)
 	byteOrder := p.determineByteOrder(options)
 
 	position := 0

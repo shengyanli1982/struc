@@ -50,7 +50,7 @@ func (u *DefaultFieldUnpacker) Unpack(buffer []byte, fieldValue reflect.Value, l
 
 // UnpackSingleValue 解包单个字段值
 func (u *DefaultFieldUnpacker) UnpackSingleValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
-	resolvedType := u.descriptor.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(u.descriptor.Type, options)
 	byteOrder := u.determineByteOrder(options)
 
 	if resolvedType == Pad || resolvedType == String {
@@ -103,7 +103,7 @@ func (u *DefaultFieldUnpacker) UnpackSingleValue(buffer []byte, fieldValue refle
 
 // UnpackSliceValue 解包切片字段值
 func (u *DefaultFieldUnpacker) UnpackSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
-	resolvedType := u.descriptor.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(u.descriptor.Type, options)
 
 	// 如果是数组则使用原值, 否则创建切片
 	sliceValue := fieldValue

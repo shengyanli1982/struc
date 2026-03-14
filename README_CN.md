@@ -379,26 +379,25 @@ func (i *Int3) String() string {
 
 ```bash
 $ go.exe test -benchmem -run=^$ -bench . github.com/shengyanli1982/struc/v2
-Starting pprof server on :6060
 goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
 cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12          9571850               122.3 ns/op           112 B/op          2 allocs/op
-BenchmarkSliceEncode-12          9085725               132.1 ns/op           112 B/op          2 allocs/op
-BenchmarkArrayDecode-12         13183407                91.15 ns/op           49 B/op          1 allocs/op
-BenchmarkSliceDecode-12          7815796               155.2 ns/op            89 B/op          3 allocs/op
-BenchmarkEncode-12               5601387               218.0 ns/op             0 B/op          0 allocs/op
-BenchmarkStdlibEncode-12        11315949               105.1 ns/op            24 B/op          1 allocs/op
-BenchmarkManualEncode-12        51424236                22.79 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               5165126               233.2 ns/op             8 B/op          0 allocs/op
-BenchmarkStdlibDecode-12         7359375               163.7 ns/op            32 B/op          2 allocs/op
-BenchmarkManualDecode-12        100000000               10.91 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12            761937              1518 ns/op               0 B/op          0 allocs/op
-BenchmarkFullDecode-12            765120              1538 ns/op             125 B/op          3 allocs/op
-BenchmarkFieldPool-12           11439705               105.7 ns/op             0 B/op          0 allocs/op
-BenchmarkGetFormatString/Simple-12              11294882               105.1 ns/op             5 B/op          1 allocs/op
-BenchmarkGetFormatString/Complex-12              6519446               185.6 ns/op            16 B/op          1 allocs/op
+BenchmarkArrayEncode-12         11730238               100.7 ns/op           112 B/op          2 allocs/op
+BenchmarkSliceEncode-12         10587612               115.1 ns/op           112 B/op          2 allocs/op
+BenchmarkArrayDecode-12         14918155                79.85 ns/op           49 B/op          1 allocs/op
+BenchmarkSliceDecode-12          8770287               138.5 ns/op            89 B/op          3 allocs/op
+BenchmarkEncode-12               6825954               177.8 ns/op             0 B/op          0 allocs/op
+BenchmarkStdlibEncode-12        11287402               106.4 ns/op            24 B/op          1 allocs/op
+BenchmarkManualEncode-12        50722155                23.21 ns/op           64 B/op          1 allocs/op
+BenchmarkDecode-12               6101935               197.5 ns/op             8 B/op          0 allocs/op
+BenchmarkStdlibDecode-12         7136888               167.9 ns/op            32 B/op          2 allocs/op
+BenchmarkManualDecode-12        100000000               10.82 ns/op            8 B/op          1 allocs/op
+BenchmarkFullEncode-12            910338              1316 ns/op               0 B/op          0 allocs/op
+BenchmarkFullDecode-12            860392              1374 ns/op             125 B/op          3 allocs/op
+BenchmarkFieldPool-12           13610966                87.26 ns/op            0 B/op          0 allocs/op
+BenchmarkGetFormatString/Simple-12              11422729               106.5 ns/op             5 B/op          1 allocs/op
+BenchmarkGetFormatString/Complex-12              6581953               182.8 ns/op            16 B/op          1 allocs/op
 ```
 
 ## 许可证
