@@ -69,7 +69,12 @@ func (f Fields) Sizeof(structValue reflect.Value, options *Options) int {
 // sizefrom 根据引用字段的值确定切片或数组的长度
 // 支持有符号和无符号整数类型的长度字段
 func (f Fields) sizefrom(structValue reflect.Value, fieldIndex []int) int {
-	lengthField := structValue.FieldByIndex(fieldIndex)
+	var lengthField reflect.Value
+	if len(fieldIndex) == 1 {
+		lengthField = structValue.Field(fieldIndex[0])
+	} else {
+		lengthField = structValue.FieldByIndex(fieldIndex)
+	}
 
 	switch lengthField.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -81,7 +86,12 @@ func (f Fields) sizefrom(structValue reflect.Value, fieldIndex []int) int {
 		}
 		return lengthValue
 	default:
-		fieldName := structValue.Type().FieldByIndex(fieldIndex).Name
+		var fieldName string
+		if len(fieldIndex) == 1 {
+			fieldName = structValue.Type().Field(fieldIndex[0]).Name
+		} else {
+			fieldName = structValue.Type().FieldByIndex(fieldIndex).Name
+		}
 		panic(fmt.Sprintf("sizeof field %T.%s not an integer type", structValue.Interface(), fieldName))
 	}
 }
@@ -112,7 +122,12 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 		}
 
 		if field.Sizeof != nil {
-			sizeofLength := structValue.FieldByIndex(field.Sizeof).Len()
+			var sizeofLength int
+			if len(field.Sizeof) == 1 {
+				sizeofLength = structValue.Field(field.Sizeof[0]).Len()
+			} else {
+				sizeofLength = structValue.FieldByIndex(field.Sizeof).Len()
+			}
 
 			switch field.kind {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -200,7 +215,7 @@ func (f Fields) unpackSingleStruct(reader io.Reader, fieldValue reflect.Value, n
 
 // unpackBasicType 处理基本类型和自定义类型的解包
 func (f Fields) unpackBasicType(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options, scratch *scratchArena) error {
-	resolvedType := field.Type.Resolve(options)
+	resolvedType := resolveTypeForOptions(field.Type, options)
 	if resolvedType == CustomType {
 		return fieldValue.Addr().Interface().(CustomBinaryer).Unpack(reader, fieldLength, options)
 	}

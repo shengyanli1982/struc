@@ -34,6 +34,10 @@ const (
 // Resolve 根据选项解析实际类型
 // 主要用于处理 SizeType 和 OffType 这样的平台相关类型
 func (t Type) Resolve(options *Options) Type {
+	if t != OffType && t != SizeType {
+		return t
+	}
+
 	switch t {
 	case OffType:
 		switch options.PtrSize {
@@ -63,6 +67,13 @@ func (t Type) Resolve(options *Options) Type {
 		}
 	}
 	return t
+}
+
+func resolveTypeForOptions(t Type, options *Options) Type {
+	if t != OffType && t != SizeType {
+		return t
+	}
+	return t.Resolve(options)
 }
 
 // String 返回类型的字符串表示
