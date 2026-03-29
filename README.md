@@ -378,27 +378,37 @@ Benefits of custom types:
 ## Performance Benchmarks
 
 ```bash
-$ go.exe test -benchmem -run=^$ -bench . github.com/shengyanli1982/struc/v2
+$ go test -benchmem -run=^$ -bench . github.com/shengyanli1982/struc/v2
 goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
 cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12         11730238               100.7 ns/op           112 B/op          2 allocs/op
-BenchmarkSliceEncode-12         10587612               115.1 ns/op           112 B/op          2 allocs/op
-BenchmarkArrayDecode-12         14918155                79.85 ns/op           49 B/op          1 allocs/op
-BenchmarkSliceDecode-12          8770287               138.5 ns/op            89 B/op          3 allocs/op
-BenchmarkEncode-12               6825954               177.8 ns/op             0 B/op          0 allocs/op
-BenchmarkStdlibEncode-12        11287402               106.4 ns/op            24 B/op          1 allocs/op
-BenchmarkManualEncode-12        50722155                23.21 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               6101935               197.5 ns/op             8 B/op          0 allocs/op
-BenchmarkStdlibDecode-12         7136888               167.9 ns/op            32 B/op          2 allocs/op
-BenchmarkManualDecode-12        100000000               10.82 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12            910338              1316 ns/op               0 B/op          0 allocs/op
-BenchmarkFullDecode-12            860392              1374 ns/op             125 B/op          3 allocs/op
-BenchmarkFieldPool-12           13610966                87.26 ns/op            0 B/op          0 allocs/op
-BenchmarkGetFormatString/Simple-12              11422729               106.5 ns/op             5 B/op          1 allocs/op
-BenchmarkGetFormatString/Complex-12              6581953               182.8 ns/op            16 B/op          1 allocs/op
+BenchmarkArrayEncode-12         11901679               103.9 ns/op           112 B/op          2 allocs/op
+BenchmarkSliceEncode-12         10613889               117.9 ns/op           112 B/op          2 allocs/op
+BenchmarkArrayDecode-12         14520021                81.67 ns/op            49 B/op          1 allocs/op
+BenchmarkSliceDecode-12          8477186               140.0 ns/op             89 B/op          3 allocs/op
+BenchmarkEncode-12               6742894               182.7 ns/op              0 B/op          0 allocs/op
+BenchmarkStdlibEncode-12        10913515               107.9 ns/op             24 B/op          1 allocs/op
+BenchmarkManualEncode-12        50604085                24.43 ns/op            64 B/op          1 allocs/op
+BenchmarkDecode-12               6046371               192.7 ns/op              8 B/op          0 allocs/op
+BenchmarkStdlibDecode-12         6890638               171.9 ns/op             32 B/op          2 allocs/op
+BenchmarkManualDecode-12        100000000                11.38 ns/op            8 B/op          1 allocs/op
+BenchmarkFullEncode-12            910242              1383 ns/op                0 B/op          0 allocs/op
+BenchmarkFullDecode-12            763944              1398 ns/op              125 B/op          3 allocs/op
+BenchmarkFieldPool-12           13127349                91.68 ns/op             0 B/op          0 allocs/op
+BenchmarkGetFormatString/Simple-12              11087241               107.3 ns/op              5 B/op          1 allocs/op
+BenchmarkGetFormatString/Complex-12              6490215               185.3 ns/op             16 B/op          1 allocs/op
 ```
+
+### Performance Optimization Details
+
+The library includes several optimizations for high-performance binary serialization:
+
+- **Reflection Caching**: Struct field metadata is cached to avoid repeated parsing overhead
+- **BytesSlicePool**: A pre-allocated 4KiB shared buffer pool reduces memory allocation pressure during decoding
+- **Scratch Arena**: Per-call scratch buffers minimize allocation overhead for small fields
+- **Optimized Buffer Paths**: Special fast paths for `bytes.Buffer` and zero-copy operations for string/`[]byte` fields
+- **Pool-based Memory Management**: Field objects and temporary buffers are pooled to reduce GC pressure
 
 ## License
 

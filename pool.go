@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"math/bits"
 	"reflect"
-	"runtime"
 	"sync"
 	"sync/atomic"
 )
@@ -295,29 +294,16 @@ func (b *BytesSlicePool) GetSlice(size int) []byte {
 		return make([]byte, size)
 	}
 
-	// 快速路径：尝试有限次数的原子操作，使用退避策略减少 CPU 压力
-	for i := 0; i < 4; i++ { // 最多尝试 4 次 / Maximum 4 attempts
-		currentOffset := atomic.LoadInt32(&b.offset)
-
-		if int(currentOffset)+size > b.size {
-			break
-		}
-
+	// 快速路径：尝试一次原子操作
+	currentOffset := atomic.LoadInt32(&b.offset)
+	if int(currentOffset)+size <= b.size {
 		newOffset := currentOffset + int32(size)
 		if atomic.CompareAndSwapInt32(&b.offset, currentOffset, newOffset) {
 			return b.bytes[currentOffset:newOffset]
 		}
-
-		// 简单的退避策略，防止 CPU 过热
-		if i > 0 {
-			for j := 0; j < (1 << i); j++ {
-				// 让出 CPU，允许其他 goroutine 执行
-				runtime.Gosched()
-			}
-		}
 	}
 
-	// 慢路径：多次尝试失败或空间不足时使用
+	// 慢路径：使用互斥锁保护重置操作
 	return b.getSliceSlow(size)
 }
 
