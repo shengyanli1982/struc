@@ -86,7 +86,9 @@ func parseStructField(structField reflect.StructField) (fieldDesc *Field, fieldT
 	fieldDesc.Length = 1
 	fieldDesc.ByteOrder = fieldTag.Order
 	fieldDesc.IsSlice = false
+	fieldDesc.Offset = structField.Offset
 	fieldDesc.kind = structField.Type.Kind()
+	fieldDesc.fieldType = structField.Type
 
 	switch fieldDesc.kind {
 	case reflect.Array:

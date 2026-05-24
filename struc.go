@@ -27,9 +27,10 @@ func Pack(writer io.Writer, data interface{}) error {
 func PackWithOptions(writer io.Writer, data interface{}, options *Options) error {
 	if options == nil {
 		options = defaultPackingOptions
-	}
-	if err := options.Validate(); err != nil {
-		return fmt.Errorf("invalid options: %w", err)
+	} else {
+		if err := options.Validate(); err != nil {
+			return fmt.Errorf("invalid options: %w", err)
+		}
 	}
 
 	value, packer, err := prepareValueForPacking(data)
@@ -79,40 +80,57 @@ func PackWithOptions(writer io.Writer, data interface{}, options *Options) error
 }
 
 func packIntoBytesBuffer(buf *bytes.Buffer, packer Packer, value reflect.Value, options *Options, bufferSize int) error {
-	buf.Grow(bufferSize)
-
 	dst := buf.AvailableBuffer()
-	if cap(dst) < bufferSize {
-		// 极端情况下回退，保持正确性。
-		tmp := acquireTempBytes(bufferSize)
-		defer tmp.Release()
-		buffer := tmp.Bytes()
-		memclr(buffer)
-		n, err := packer.Pack(buffer, value, options)
+	if len(dst) >= bufferSize {
+		dst = dst[:bufferSize]
+		if _, ok := packer.(*fieldsPacker); !ok {
+			memclr(dst)
+		}
+		n, err := packer.Pack(dst, value, options)
 		if err != nil {
 			return fmt.Errorf("packing failed: %w", err)
 		}
 		if n < bufferSize {
-			memclr(buffer[n:bufferSize])
+			memclr(dst[n:bufferSize])
 		}
-		if _, err := buf.Write(buffer); err != nil {
+		if _, err := buf.Write(dst); err != nil {
 			return fmt.Errorf("writing failed: %w", err)
 		}
 		return nil
 	}
 
-	dst = dst[:bufferSize]
-	if _, ok := packer.(*fieldsPacker); !ok {
-		memclr(dst)
+	buf.Grow(bufferSize)
+	dst = buf.AvailableBuffer()
+	if cap(dst) >= bufferSize {
+		dst = dst[:bufferSize]
+		if _, ok := packer.(*fieldsPacker); !ok {
+			memclr(dst)
+		}
+		n, err := packer.Pack(dst, value, options)
+		if err != nil {
+			return fmt.Errorf("packing failed: %w", err)
+		}
+		if n < bufferSize {
+			memclr(dst[n:bufferSize])
+		}
+		if _, err := buf.Write(dst); err != nil {
+			return fmt.Errorf("writing failed: %w", err)
+		}
+		return nil
 	}
-	n, err := packer.Pack(dst, value, options)
+
+	tmp := acquireTempBytes(bufferSize)
+	defer tmp.Release()
+	buffer := tmp.Bytes()
+	memclr(buffer)
+	n, err := packer.Pack(buffer, value, options)
 	if err != nil {
 		return fmt.Errorf("packing failed: %w", err)
 	}
 	if n < bufferSize {
-		memclr(dst[n:bufferSize])
+		memclr(buffer[n:bufferSize])
 	}
-	if _, err := buf.Write(dst); err != nil {
+	if _, err := buf.Write(buffer); err != nil {
 		return fmt.Errorf("writing failed: %w", err)
 	}
 	return nil
@@ -129,9 +147,10 @@ func Unpack(reader io.Reader, data interface{}) error {
 func UnpackWithOptions(reader io.Reader, data interface{}, options *Options) error {
 	if options == nil {
 		options = defaultPackingOptions
-	}
-	if err := options.Validate(); err != nil {
-		return fmt.Errorf("invalid options: %w", err)
+	} else {
+		if err := options.Validate(); err != nil {
+			return fmt.Errorf("invalid options: %w", err)
+		}
 	}
 
 	value, packer, err := prepareValueForPacking(data)
@@ -153,9 +172,10 @@ func Sizeof(data interface{}) (int, error) {
 func SizeofWithOptions(data interface{}, options *Options) (int, error) {
 	if options == nil {
 		options = defaultPackingOptions
-	}
-	if err := options.Validate(); err != nil {
-		return 0, fmt.Errorf("invalid options: %w", err)
+	} else {
+		if err := options.Validate(); err != nil {
+			return 0, fmt.Errorf("invalid options: %w", err)
+		}
 	}
 
 	value, packer, err := prepareValueForPacking(data)

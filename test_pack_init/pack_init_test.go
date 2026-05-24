@@ -9,7 +9,7 @@ import (
 )
 
 type Example struct {
-	I int `struc:int`
+	I int `struc:"int"`
 }
 
 // TestParallelPack checks whether Pack is goroutine-safe. Run it with -race flag.

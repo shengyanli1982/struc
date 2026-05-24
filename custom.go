@@ -50,9 +50,9 @@ func (c customBinaryerFallback) Pack(buf []byte, val reflect.Value, options *Opt
 }
 
 // Unpack 从读取器中解包自定义类型的值
-// 调用底层自定义类型的 Unpack 方法，长度固定为1
+// 调用底层自定义类型的 Unpack 方法，传入实际数据大小
 func (c customBinaryerFallback) Unpack(reader io.Reader, val reflect.Value, options *Options) error {
-	return c.custom.Unpack(reader, 1, options)
+	return c.custom.Unpack(reader, c.custom.Size(options), options)
 }
 
 // Sizeof 返回自定义类型值的大小
