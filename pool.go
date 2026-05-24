@@ -246,6 +246,8 @@ func releaseField(f *Field) {
 	f.Sizeof = nil
 	f.Sizefrom = nil
 	f.NestFields = nil
+	f.Offset = 0
+	f.fieldType = nil
 	f.kind = reflect.Invalid
 
 	fieldPool.Put(f)
