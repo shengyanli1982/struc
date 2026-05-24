@@ -12,6 +12,12 @@ import (
 	"unsafe"
 )
 
+// unsafeStringHeader mirrors reflect.StringHeader
+type unsafeStringHeader struct {
+	Data uintptr
+	Len  int
+}
+
 // unpackBasicTypeSlicePool 是全局共享的字节块实例
 // 用于在 unpackBasicType 方法内共享字节切片，减少内存分配
 var unpackBasicTypeSlicePool = NewBytesSlicePool(0)
@@ -123,7 +129,17 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 		if field.Sizeof != nil {
 			var sizeofLength int
 			if len(field.Sizeof) == 1 {
-				sizeofLength = structValue.Field(field.Sizeof[0]).Len()
+				targetField := f[field.Sizeof[0]]
+				targetAddr := baseAddr + targetField.Offset
+				if targetField.IsArray {
+					sizeofLength = targetField.Length
+				} else if targetField.IsSlice {
+					sizeofLength = (*unsafeSliceHeader)(unsafe.Pointer(targetAddr)).Len
+				} else if targetField.kind == reflect.String {
+					sizeofLength = (*unsafeStringHeader)(unsafe.Pointer(targetAddr)).Len
+				} else {
+					sizeofLength = structValue.Field(field.Sizeof[0]).Len()
+				}
 			} else {
 				sizeofLength = structValue.FieldByIndex(field.Sizeof).Len()
 			}
@@ -146,6 +162,32 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 				return position, err
 			}
 			position += n
+			continue
+		}
+
+		// Fast path for [N]basicType arrays: direct memcpy
+		if field.IsArray && field.IsSlice && !field.IsPointer && field.Type.IsBasicType() {
+			byteOrder := field.determineByteOrder(options)
+			elementSize := field.Type.Size()
+			totalBytes := fieldLength * elementSize
+			fieldAddr := baseAddr + field.Offset
+
+			if byteOrder == nil || byteOrder == binary.LittleEndian || elementSize == 1 {
+				if totalBytes > 0 {
+					src := unsafe.Slice((*byte)(unsafe.Pointer(fieldAddr)), totalBytes)
+					copy(buffer[position:position+totalBytes], src)
+				}
+				position += totalBytes
+			} else {
+				for j := 0; j < fieldLength; j++ {
+					elemAddr := unsafe.Pointer(fieldAddr + uintptr(j)*uintptr(elementSize))
+					n, err := packBasicFromAddr(buffer[position:], elemAddr, field.Type, field.kind, byteOrder)
+					if err != nil {
+						return position, err
+					}
+					position += n
+				}
+			}
 			continue
 		}
 
