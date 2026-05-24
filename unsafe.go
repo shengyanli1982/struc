@@ -10,11 +10,6 @@ import (
 //go:linkname memclrNoHeapPointers runtime.memclrNoHeapPointers
 func memclrNoHeapPointers(ptr unsafe.Pointer, n uintptr)
 
-// typedmemmove 是一个底层的内存移动函数
-//
-//go:linkname typedmemmove runtime.typedmemmove
-func typedmemmove(dst unsafe.Pointer, src unsafe.Pointer, size uintptr)
-
 // memclr 使用 runtime 的内存清零函数, 比循环清零更高效
 func memclr(b []byte) {
 	if len(b) == 0 {
@@ -141,18 +136,20 @@ func unsafePutFloat32(buffer []byte, value float32, byteOrder binary.ByteOrder) 
 	unsafePutUint32(buffer, bits, byteOrder)
 }
 
-// unsafeMoveSlice 使用 typedmemmove 移动切片数据
-// 直接操作切片的底层数据，避免内存拷贝
 func unsafeMoveSlice(dst, src reflect.Value) {
-	dstPtr := unsafe.Pointer(dst.Pointer())
-	srcPtr := unsafe.Pointer(src.Pointer())
-
-	// The length of data to copy is the length of the source slice in bytes.
-	// Since src is always a []byte slice from reflect.ValueOf(buffer),
-	// src.Len() is the number of bytes.
-	dataLen := uintptr(src.Len())
-	if dataLen == 0 {
+	srcLen := src.Len()
+	if srcLen == 0 {
 		return
 	}
-	typedmemmove(dstPtr, srcPtr, dataLen)
+	dstLen := dst.Len()
+	elemSize := int(dst.Type().Elem().Size())
+
+	srcBytes := unsafe.Slice((*byte)(unsafe.Pointer(src.Pointer())), srcLen)
+	dstBytes := unsafe.Slice((*byte)(unsafe.Pointer(dst.Pointer())), dstLen*elemSize)
+
+	n := srcLen
+	if n > len(dstBytes) {
+		n = len(dstBytes)
+	}
+	copy(dstBytes[:n], srcBytes[:n])
 }

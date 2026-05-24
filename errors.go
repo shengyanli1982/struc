@@ -10,6 +10,7 @@ type Error struct {
 	Code    ErrorCode
 	Message string
 	Context map[string]interface{}
+	wrapped error
 }
 
 // ErrorCode 定义了错误代码枚举
@@ -98,7 +99,7 @@ func (e *Error) WithContext(key string, value interface{}) *Error {
 
 // Unwrap 支持错误链
 func (e *Error) Unwrap() error {
-	return nil
+	return e.wrapped
 }
 
 // ==================== 便捷错误创建函数 ====================
@@ -210,7 +211,10 @@ func WrapError(code ErrorCode, err error, message string) *Error {
 	if message == "" {
 		message = err.Error()
 	}
-	return NewError(code, message).WithContext("wrapped_error", err)
+	e := NewError(code, message)
+	e.Context["wrapped_error"] = err
+	e.wrapped = err
+	return e
 }
 
 // WrapErrorf 包装现有错误为 struc 错误（格式化）

@@ -301,11 +301,9 @@ func (f *Field) packSliceValue(buffer []byte, fieldValue reflect.Value, length i
 		// 如果是小端序或没有指定字节序，可以直接复制
 		if byteOrder == nil || byteOrder == binary.LittleEndian {
 			if dataLength > 0 {
-				typedmemmove(
-					unsafe.Pointer(&buffer[0]),
-					unsafe.Pointer(fieldValue.Pointer()),
-					uintptr(dataLength*elementSize),
-				)
+				totalBytes := dataLength * elementSize
+				src := unsafe.Slice((*byte)(unsafe.Pointer(fieldValue.Pointer())), totalBytes)
+				copy(buffer[:totalBytes], src)
 			}
 			if dataLength < length {
 				memclr(buffer[dataLength*elementSize : totalSize])

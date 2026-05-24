@@ -78,7 +78,11 @@ func (f Fields) sizefrom(structValue reflect.Value, fieldIndex []int) int {
 
 	switch lengthField.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return int(lengthField.Int())
+		length := int(lengthField.Int())
+		if length < 0 {
+			return 0
+		}
+		return length
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		lengthValue := int(lengthField.Uint())
 		if lengthValue < 0 {

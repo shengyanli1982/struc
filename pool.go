@@ -264,10 +264,10 @@ func releaseFields(fields Fields) {
 // BytesSlicePool 是一个用于管理共享字节切片的结构体
 // 它提供了线程安全的切片分配和重用功能
 type BytesSlicePool struct {
-	bytes  []byte     // 底层字节数组
-	offset int32      // 当前偏移量
-	size   int        // 当前块大小
-	mu     sync.Mutex // 互斥锁用于保护并发访问
+	bytesPtr atomic.Pointer[[]byte]
+	offset   atomic.Int32
+	size     int
+	mu       sync.Mutex
 }
 
 // NewBytesSlicePool 创建一个新的 BytesSlicePool 实例
@@ -278,12 +278,10 @@ func NewBytesSlicePool(size int) *BytesSlicePool {
 		size = MaxBytesSliceSize
 	}
 
-	return &BytesSlicePool{
-		bytes:  make([]byte, size),
-		offset: 0,
-		size:   size,
-		mu:     sync.Mutex{},
-	}
+	p := &BytesSlicePool{size: size}
+	b := make([]byte, size)
+	p.bytesPtr.Store(&b)
+	return p
 }
 
 // GetSlice 返回指定大小的字节切片
@@ -294,12 +292,11 @@ func (b *BytesSlicePool) GetSlice(size int) []byte {
 		return make([]byte, size)
 	}
 
-	// 快速路径：尝试一次原子操作
-	currentOffset := atomic.LoadInt32(&b.offset)
+	currentOffset := b.offset.Load()
 	if int(currentOffset)+size <= b.size {
 		newOffset := currentOffset + int32(size)
-		if atomic.CompareAndSwapInt32(&b.offset, currentOffset, newOffset) {
-			return b.bytes[currentOffset:newOffset]
+		if b.offset.CompareAndSwap(currentOffset, newOffset) {
+			return (*b.bytesPtr.Load())[currentOffset:newOffset]
 		}
 	}
 
@@ -313,12 +310,13 @@ func (b *BytesSlicePool) getSliceSlow(size int) []byte {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if int(b.offset)+size > b.size {
-		b.bytes = make([]byte, b.size)
-		b.offset = 0
+	if int(b.offset.Load())+size > b.size {
+		newBytes := make([]byte, b.size)
+		b.bytesPtr.Store(&newBytes)
+		b.offset.Store(0)
 	}
-	start := b.offset
-	b.offset += int32(size)
+	start := b.offset.Load()
+	b.offset.Add(int32(size))
 
-	return b.bytes[start:b.offset]
+	return (*b.bytesPtr.Load())[start : start+int32(size)]
 }

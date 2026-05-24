@@ -27,9 +27,10 @@ func Pack(writer io.Writer, data interface{}) error {
 func PackWithOptions(writer io.Writer, data interface{}, options *Options) error {
 	if options == nil {
 		options = defaultPackingOptions
-	}
-	if err := options.Validate(); err != nil {
-		return fmt.Errorf("invalid options: %w", err)
+	} else {
+		if err := options.Validate(); err != nil {
+			return fmt.Errorf("invalid options: %w", err)
+		}
 	}
 
 	value, packer, err := prepareValueForPacking(data)
@@ -129,9 +130,10 @@ func Unpack(reader io.Reader, data interface{}) error {
 func UnpackWithOptions(reader io.Reader, data interface{}, options *Options) error {
 	if options == nil {
 		options = defaultPackingOptions
-	}
-	if err := options.Validate(); err != nil {
-		return fmt.Errorf("invalid options: %w", err)
+	} else {
+		if err := options.Validate(); err != nil {
+			return fmt.Errorf("invalid options: %w", err)
+		}
 	}
 
 	value, packer, err := prepareValueForPacking(data)
@@ -153,9 +155,10 @@ func Sizeof(data interface{}) (int, error) {
 func SizeofWithOptions(data interface{}, options *Options) (int, error) {
 	if options == nil {
 		options = defaultPackingOptions
-	}
-	if err := options.Validate(); err != nil {
-		return 0, fmt.Errorf("invalid options: %w", err)
+	} else {
+		if err := options.Validate(); err != nil {
+			return 0, fmt.Errorf("invalid options: %w", err)
+		}
 	}
 
 	value, packer, err := prepareValueForPacking(data)
