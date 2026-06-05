@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"sync"
 )
+
+var formatStringCache sync.Map
 
 // 格式映射表定义了 Go 类型到二进制格式字符的映射关系
 var formatMap = map[Type]string{
@@ -28,19 +31,21 @@ var formatMap = map[Type]string{
 // GetFormatString 返回结构体的格式字符串，用于描述二进制数据的布局。
 // 格式类似于 Python 的 struct 模块，例如 "<10sHHb"。
 func GetFormatString(data interface{}) (string, error) {
-	// 获取并验证输入数据
 	value, err := validateInput(data)
 	if err != nil {
 		return "", err
 	}
 
-	// 解析字段
+	structType := value.Type()
+	if cached, ok := formatStringCache.Load(structType); ok {
+		return cached.(string), nil
+	}
+
 	fields, err := parseFields(value)
 	if err != nil && value.NumField() > 0 {
 		return "", fmt.Errorf("failed to parse fields: %w", err)
 	}
 
-	// 确定字节序并生成格式字符串
 	buf := acquireBuffer()
 	defer releaseBuffer(buf)
 
@@ -48,7 +53,9 @@ func GetFormatString(data interface{}) (string, error) {
 		return "", err
 	}
 
-	return buf.String(), nil
+	result := buf.String()
+	formatStringCache.Store(structType, result)
+	return result, nil
 }
 
 // validateInput 验证输入数据并返回结构体的反射值。

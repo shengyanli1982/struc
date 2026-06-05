@@ -201,10 +201,7 @@ func releaseSizeofMap(m map[string][]int) {
 	if m == nil {
 		return
 	}
-	// 清空 map
-	for k := range m {
-		delete(m, k)
-	}
+	clear(m)
 	sizeofMapPool.Put(m)
 }
 
@@ -249,6 +246,7 @@ func releaseField(f *Field) {
 	f.Offset = 0
 	f.fieldType = nil
 	f.kind = reflect.Invalid
+	f.fixedSize = 0
 
 	fieldPool.Put(f)
 }

@@ -29,6 +29,7 @@ type Field struct {
 	Offset     uintptr          // byte offset of this field within the struct
 	fieldType  reflect.Type     // actual reflect.Type of the struct field
 	kind       reflect.Kind     // Go 的反射类型
+	fixedSize  int              // -1=dynamic, >=0=precomputed size under defaultPackingOptions
 }
 
 // ==================== 基础工具函数 ====================

@@ -62,9 +62,21 @@ func (f Fields) Sizeof(structValue reflect.Value, options *Options) int {
 		structValue = structValue.Elem()
 	}
 	totalSize := 0
-	for i, field := range f {
-		if field != nil {
-			totalSize += field.Size(structValue.Field(i), options)
+	if options == defaultPackingOptions {
+		for i, field := range f {
+			if field != nil {
+				if field.fixedSize >= 0 {
+					totalSize += field.fixedSize
+				} else {
+					totalSize += field.Size(structValue.Field(i), options)
+				}
+			}
+		}
+	} else {
+		for i, field := range f {
+			if field != nil {
+				totalSize += field.Size(structValue.Field(i), options)
+			}
 		}
 	}
 	return totalSize
@@ -101,6 +113,76 @@ func (f Fields) sizefrom(structValue reflect.Value, fieldIndex []int) int {
 	}
 }
 
+func (f Fields) sizefromUnsafe(basePtr unsafe.Pointer, fieldIndex []int, structValue reflect.Value) int {
+	if len(fieldIndex) == 1 {
+		targetField := f[fieldIndex[0]]
+		targetAddr := unsafe.Add(basePtr, int(targetField.Offset))
+		switch targetField.kind {
+		case reflect.Int:
+			v := int(*(*int)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		case reflect.Int8:
+			v := int(*(*int8)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		case reflect.Int16:
+			v := int(*(*int16)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		case reflect.Int32:
+			v := int(*(*int32)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		case reflect.Int64:
+			v := int(*(*int64)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		case reflect.Uint:
+			v := int(*(*uint)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		case reflect.Uint8:
+			v := int(*(*uint8)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		case reflect.Uint16:
+			v := int(*(*uint16)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		case reflect.Uint32:
+			v := int(*(*uint32)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		case reflect.Uint64:
+			v := int(*(*uint64)(targetAddr))
+			if v < 0 {
+				return 0
+			}
+			return v
+		}
+	}
+	return f.sizefrom(structValue, fieldIndex)
+}
+
 // Pack 将字段集合打包到字节缓冲区中
 // 支持基本类型、结构体、切片和自定义类型
 func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options) (int, error) {
@@ -109,40 +191,37 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 	}
 
 	position := 0
-	baseAddr := uintptr(structValue.UnsafeAddr())
+	basePtr := unsafe.Pointer(structValue.UnsafeAddr())
 
 	for i, field := range f {
 		if field == nil {
 			continue
 		}
 
-		fieldValue := structValue.Field(i)
 		fieldLength := field.Length
 
 		if field.Sizefrom != nil {
-			fieldLength = f.sizefrom(structValue, field.Sizefrom)
-		}
-		if fieldLength <= 0 && field.IsSlice {
-			fieldLength = fieldValue.Len()
+			fieldLength = f.sizefromUnsafe(basePtr, field.Sizefrom, structValue)
 		}
 
 		if field.Sizeof != nil {
 			var sizeofLength int
 			if len(field.Sizeof) == 1 {
 				targetField := f[field.Sizeof[0]]
-				targetAddr := baseAddr + targetField.Offset
+				targetAddr := unsafe.Add(basePtr, int(targetField.Offset))
 				if targetField.IsArray {
 					sizeofLength = targetField.Length
 				} else if targetField.IsSlice {
-					sizeofLength = (*unsafeSliceHeader)(unsafe.Pointer(targetAddr)).Len
+					sizeofLength = (*unsafeSliceHeader)(targetAddr).Len
 				} else if targetField.kind == reflect.String {
-					sizeofLength = (*unsafeStringHeader)(unsafe.Pointer(targetAddr)).Len
+					sizeofLength = (*unsafeStringHeader)(targetAddr).Len
 				} else {
 					sizeofLength = structValue.Field(field.Sizeof[0]).Len()
 				}
 			} else {
 				sizeofLength = structValue.FieldByIndex(field.Sizeof).Len()
 			}
+			fieldValue := structValue.Field(i)
 			switch field.kind {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				fieldValue.SetInt(int64(sizeofLength))
@@ -153,11 +232,16 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 			}
 		}
 
+		fieldValue := structValue.Field(i)
+		if fieldLength <= 0 && field.IsSlice {
+			fieldLength = fieldValue.Len()
+		}
+
 		// Fast path for non-slice, non-pointer basic types
 		if !field.IsSlice && !field.IsPointer && field.Type.IsBasicType() && field.kind != reflect.String {
 			byteOrder := field.determineByteOrder(options)
-			fieldAddr := baseAddr + field.Offset
-			n, err := packBasicFromAddr(buffer[position:], unsafe.Pointer(fieldAddr), field.Type, field.kind, byteOrder)
+			fieldAddr := unsafe.Add(basePtr, int(field.Offset))
+			n, err := packBasicFromAddr(buffer[position:], fieldAddr, field.Type, field.kind, byteOrder)
 			if err != nil {
 				return position, err
 			}
@@ -170,17 +254,17 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 			byteOrder := field.determineByteOrder(options)
 			elementSize := field.Type.Size()
 			totalBytes := fieldLength * elementSize
-			fieldAddr := baseAddr + field.Offset
+			fieldAddr := unsafe.Add(basePtr, int(field.Offset))
 
 			if byteOrder == nil || byteOrder == binary.LittleEndian || elementSize == 1 {
 				if totalBytes > 0 {
-					src := unsafe.Slice((*byte)(unsafe.Pointer(fieldAddr)), totalBytes)
+					src := unsafe.Slice((*byte)(fieldAddr), totalBytes)
 					copy(buffer[position:position+totalBytes], src)
 				}
 				position += totalBytes
 			} else {
 				for j := 0; j < fieldLength; j++ {
-					elemAddr := unsafe.Pointer(fieldAddr + uintptr(j)*uintptr(elementSize))
+					elemAddr := unsafe.Add(fieldAddr, j*elementSize)
 					n, err := packBasicFromAddr(buffer[position:], elemAddr, field.Type, field.kind, byteOrder)
 					if err != nil {
 						return position, err
@@ -193,7 +277,7 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 
 		bytesWritten, err := field.Pack(buffer[position:], fieldValue, fieldLength, options)
 		if err != nil {
-			return bytesWritten, err
+			return position + bytesWritten, err
 		}
 		position += bytesWritten
 	}
@@ -300,17 +384,17 @@ func (f Fields) unpackWithScratch(reader io.Reader, structValue reflect.Value, o
 	for structValue.Kind() == reflect.Ptr {
 		structValue = structValue.Elem()
 	}
-	baseAddr := uintptr(structValue.UnsafeAddr())
+	basePtr := unsafe.Pointer(structValue.UnsafeAddr())
 
 	for _, field := range f {
 		if field == nil {
 			continue
 		}
 
-		fieldAddr := baseAddr + field.Offset
+		fieldAddr := unsafe.Add(basePtr, int(field.Offset))
 		fieldLength := field.Length
 		if field.Sizefrom != nil {
-			fieldLength = f.sizefrom(structValue, field.Sizefrom)
+			fieldLength = f.sizefromUnsafe(basePtr, field.Sizefrom, structValue)
 		}
 
 		if !field.IsSlice && !field.IsPointer && field.Type != Struct && field.Type != CustomType && field.Type != String &&
@@ -323,7 +407,7 @@ func (f Fields) unpackWithScratch(reader io.Reader, structValue reflect.Value, o
 					return err
 				}
 				byteOrder := field.determineByteOrder(options)
-				if err := unpackBasicFromAddr(buffer, unsafe.Pointer(fieldAddr), resolvedType, field.kind, byteOrder); err != nil {
+				if err := unpackBasicFromAddr(buffer, fieldAddr, resolvedType, field.kind, byteOrder); err != nil {
 					return err
 				}
 				continue
@@ -502,55 +586,53 @@ func unpackBasicFromAddr(buffer []byte, addr unsafe.Pointer, resolvedType Type, 
 }
 
 // setIntAtAddr writes a signed integer value directly to a struct field address
-func setIntAtAddr(addr uintptr, val int64, kind reflect.Kind) {
-	ptr := unsafe.Pointer(addr)
+func setIntAtAddr(addr unsafe.Pointer, val int64, kind reflect.Kind) {
 	switch kind {
 	case reflect.Int:
-		*(*int)(ptr) = int(val)
+		*(*int)(addr) = int(val)
 	case reflect.Int8:
-		*(*int8)(ptr) = int8(val)
+		*(*int8)(addr) = int8(val)
 	case reflect.Int16:
-		*(*int16)(ptr) = int16(val)
+		*(*int16)(addr) = int16(val)
 	case reflect.Int32:
-		*(*int32)(ptr) = int32(val)
+		*(*int32)(addr) = int32(val)
 	case reflect.Int64:
-		*(*int64)(ptr) = val
+		*(*int64)(addr) = val
 	case reflect.Uint:
-		*(*uint)(ptr) = uint(val)
+		*(*uint)(addr) = uint(val)
 	case reflect.Uint8:
-		*(*uint8)(ptr) = uint8(val)
+		*(*uint8)(addr) = uint8(val)
 	case reflect.Uint16:
-		*(*uint16)(ptr) = uint16(val)
+		*(*uint16)(addr) = uint16(val)
 	case reflect.Uint32:
-		*(*uint32)(ptr) = uint32(val)
+		*(*uint32)(addr) = uint32(val)
 	case reflect.Uint64:
-		*(*uint64)(ptr) = uint64(val)
+		*(*uint64)(addr) = uint64(val)
 	}
 }
 
 // setUintAtAddr writes an unsigned integer value directly to a struct field address
-func setUintAtAddr(addr uintptr, val uint64, kind reflect.Kind) {
-	ptr := unsafe.Pointer(addr)
+func setUintAtAddr(addr unsafe.Pointer, val uint64, kind reflect.Kind) {
 	switch kind {
 	case reflect.Int:
-		*(*int)(ptr) = int(val)
+		*(*int)(addr) = int(val)
 	case reflect.Int8:
-		*(*int8)(ptr) = int8(val)
+		*(*int8)(addr) = int8(val)
 	case reflect.Int16:
-		*(*int16)(ptr) = int16(val)
+		*(*int16)(addr) = int16(val)
 	case reflect.Int32:
-		*(*int32)(ptr) = int32(val)
+		*(*int32)(addr) = int32(val)
 	case reflect.Int64:
-		*(*int64)(ptr) = int64(val)
+		*(*int64)(addr) = int64(val)
 	case reflect.Uint:
-		*(*uint)(ptr) = uint(val)
+		*(*uint)(addr) = uint(val)
 	case reflect.Uint8:
-		*(*uint8)(ptr) = uint8(val)
+		*(*uint8)(addr) = uint8(val)
 	case reflect.Uint16:
-		*(*uint16)(ptr) = uint16(val)
+		*(*uint16)(addr) = uint16(val)
 	case reflect.Uint32:
-		*(*uint32)(ptr) = uint32(val)
+		*(*uint32)(addr) = uint32(val)
 	case reflect.Uint64:
-		*(*uint64)(ptr) = val
+		*(*uint64)(addr) = val
 	}
 }

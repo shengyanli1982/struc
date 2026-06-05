@@ -157,13 +157,6 @@ var typeToString = map[Type]string{
 	CustomType: "custom",
 }
 
-// init 初始化类型到字符串的映射
-func init() {
-	for name, enum := range typeStrToType {
-		typeToString[enum] = name
-	}
-}
-
 // Size_t 是平台相关的无符号整数类型，用于表示大小
 type Size_t uint64
 

@@ -378,27 +378,40 @@ func (i *Int3) String() string {
 ## 性能基准测试
 
 ```bash
-$ go.exe test -benchmem -run=^$ -bench . github.com/shengyanli1982/struc/v2
-goos: windows
-goarch: amd64
+$ go test -benchmem -run=^$ -bench . github.com/shengyanli1982/struc/v2
+goos: darwin
+goarch: arm64
 pkg: github.com/shengyanli1982/struc/v2
-cpu: 12th Gen Intel(R) Core(TM) i5-12400F
-BenchmarkArrayEncode-12         11730238               100.7 ns/op           112 B/op          2 allocs/op
-BenchmarkSliceEncode-12         10587612               115.1 ns/op           112 B/op          2 allocs/op
-BenchmarkArrayDecode-12         14918155                79.85 ns/op           49 B/op          1 allocs/op
-BenchmarkSliceDecode-12          8770287               138.5 ns/op            89 B/op          3 allocs/op
-BenchmarkEncode-12               6825954               177.8 ns/op             0 B/op          0 allocs/op
-BenchmarkStdlibEncode-12        11287402               106.4 ns/op            24 B/op          1 allocs/op
-BenchmarkManualEncode-12        50722155                23.21 ns/op           64 B/op          1 allocs/op
-BenchmarkDecode-12               6101935               197.5 ns/op             8 B/op          0 allocs/op
-BenchmarkStdlibDecode-12         7136888               167.9 ns/op            32 B/op          2 allocs/op
-BenchmarkManualDecode-12        100000000               10.82 ns/op            8 B/op          1 allocs/op
-BenchmarkFullEncode-12            910338              1316 ns/op               0 B/op          0 allocs/op
-BenchmarkFullDecode-12            860392              1374 ns/op             125 B/op          3 allocs/op
-BenchmarkFieldPool-12           13610966                87.26 ns/op            0 B/op          0 allocs/op
-BenchmarkGetFormatString/Simple-12              11422729               106.5 ns/op             5 B/op          1 allocs/op
-BenchmarkGetFormatString/Complex-12              6581953               182.8 ns/op            16 B/op          1 allocs/op
+cpu: Apple M1 Max
+BenchmarkArrayEncode-10         29082066	        81.34 ns/op	     112 B/op	       2 allocs/op
+BenchmarkSliceEncode-10         27657456	        87.32 ns/op	     112 B/op	       2 allocs/op
+BenchmarkArrayDecode-10         38394547	        62.29 ns/op	      48 B/op	       1 allocs/op
+BenchmarkSliceDecode-10         20125026	       118.5 ns/op	      88 B/op	       3 allocs/op
+BenchmarkEncode-10              22930356	       105.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkStdlibEncode-10        20051066	       119.6 ns/op	      24 B/op	       1 allocs/op
+BenchmarkManualEncode-10        100000000	        23.81 ns/op	      64 B/op	       1 allocs/op
+BenchmarkDecode-10              16905152	       141.2 ns/op	       8 B/op	       0 allocs/op
+BenchmarkStdlibDecode-10        15727665	       153.2 ns/op	      24 B/op	       1 allocs/op
+BenchmarkManualDecode-10        213900938	        11.07 ns/op	       8 B/op	       1 allocs/op
+BenchmarkFullEncode-10         	 2922501	       865.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFullDecode-10         	 2537258	       952.8 ns/op	     124 B/op	       3 allocs/op
+BenchmarkFieldPool-10           38779051	        66.81 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetFormatString/Simple-10		189453966	        12.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetFormatString/Complex-10		170894043	        12.78 ns/op	       0 B/op	       0 allocs/op
 ```
+
+### 性能优化详情
+
+本库包含多项针对高性能二进制序列化的优化：
+
+- **反射缓存**：结构体字段元数据被缓存，避免重复解析开销
+- **固定大小字段优化**：对于具有已知静态大小的字段（基本类型、固定数组、填充），在解析阶段预计算大小，消除 Sizeof 热路径中的反射开销
+- **格式字符串缓存**：`GetFormatString` 生成的格式字符串按结构体类型缓存，避免重复解析和构建
+- **直接内存访问**：`sizefrom` 操作通过基指针 + 偏移量直接读取整数值，尽可能绕过反射
+- **BytesSlicePool**：预分配的 4KiB 共享缓冲区池，减少解码期间的内存分配压力
+- **Scratch Arena**：每次调用的临时缓冲区，最小化小字段的分配开销
+- **优化的缓冲区路径**：针对 `bytes.Buffer` 的特殊快速路径，以及 string/`[]byte` 字段的零拷贝操作
+- **基于池的内存管理**：Field 对象和临时缓冲区被池化，减少 GC 压力
 
 ## 许可证
 
