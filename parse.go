@@ -81,6 +81,7 @@ func parseStructField(structField reflect.StructField) (fieldDesc *Field, fieldT
 	var ok bool
 
 	fieldDesc = acquireField()
+	fieldDesc.fixedSize = -1
 
 	fieldDesc.Name = structField.Name
 	fieldDesc.Length = 1
@@ -269,6 +270,42 @@ func parseFieldsLocked(structValue reflect.Value) (Fields, error) {
 
 		fields[i] = fieldDesc
 	}
+
+	for _, f := range fields {
+		if f == nil {
+			continue
+		}
+		if f.Type == CustomType || f.Type == Struct || f.Type == SizeType || f.Type == OffType {
+			continue
+		}
+		if f.IsPointer {
+			continue
+		}
+		if f.kind == reflect.String {
+			continue
+		}
+		if f.Type == String {
+			continue
+		}
+		if f.IsSlice && !f.IsArray {
+			continue
+		}
+		if f.Type == Pad {
+			if f.Length > 0 {
+				f.fixedSize = f.Length
+			}
+			continue
+		}
+		if f.Type.IsBasicType() {
+			elemSize := f.Type.Size()
+			if f.IsArray && f.IsSlice && f.Length > 0 {
+				f.fixedSize = f.Length * elemSize
+			} else if !f.IsSlice {
+				f.fixedSize = elemSize
+			}
+		}
+	}
+
 	return fields, nil
 }
 

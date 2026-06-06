@@ -25,12 +25,17 @@ func Pack(writer io.Writer, data interface{}) error {
 // PackWithOptions 使用指定的选项将数据打包到写入器中
 // 支持自定义选项，如字节对齐和字节序
 func PackWithOptions(writer io.Writer, data interface{}, options *Options) error {
+	if writer == nil {
+		return fmt.Errorf("writer cannot be nil")
+	}
 	if options == nil {
 		options = defaultPackingOptions
 	} else {
-		if err := options.Validate(); err != nil {
+		opts := *options
+		if err := opts.Validate(); err != nil {
 			return fmt.Errorf("invalid options: %w", err)
 		}
+		options = &opts
 	}
 
 	value, packer, err := prepareValueForPacking(data)
@@ -145,12 +150,17 @@ func Unpack(reader io.Reader, data interface{}) error {
 // UnpackWithOptions 使用指定的选项从读取器中解包数据
 // 支持自定义选项，如字节对齐和字节序
 func UnpackWithOptions(reader io.Reader, data interface{}, options *Options) error {
+	if reader == nil {
+		return fmt.Errorf("reader cannot be nil")
+	}
 	if options == nil {
 		options = defaultPackingOptions
 	} else {
-		if err := options.Validate(); err != nil {
+		opts := *options
+		if err := opts.Validate(); err != nil {
 			return fmt.Errorf("invalid options: %w", err)
 		}
+		options = &opts
 	}
 
 	value, packer, err := prepareValueForPacking(data)
@@ -173,9 +183,11 @@ func SizeofWithOptions(data interface{}, options *Options) (int, error) {
 	if options == nil {
 		options = defaultPackingOptions
 	} else {
-		if err := options.Validate(); err != nil {
+		opts := *options
+		if err := opts.Validate(); err != nil {
 			return 0, fmt.Errorf("invalid options: %w", err)
 		}
+		options = &opts
 	}
 
 	value, packer, err := prepareValueForPacking(data)

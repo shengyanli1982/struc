@@ -29,18 +29,20 @@ type binaryWriter struct {
 }
 
 // Write 实现 io.Writer 接口，将字节切片写入缓冲区
-// 如果缓冲区容量不足，会截断写入数据
+// 如果缓冲区容量不足，会截断写入数据并返回 io.ErrShortWrite
 //
 // Write implements io.Writer interface, writes byte slice to buffer
-// If buffer capacity is insufficient, write data will be truncated
+// If buffer capacity is insufficient, write data will be truncated and io.ErrShortWrite is returned
 func (b *binaryWriter) Write(p []byte) (int, error) {
 	// 计算剩余可写容量
 	// Calculate remaining writable capacity
 	remainingCapacity := len(b.buf) - b.pos
 	if remainingCapacity < len(p) {
-		// 如果容量不足，截断写入数据
-		// If capacity is insufficient, truncate write data
-		p = p[:remainingCapacity]
+		// 容量不足：写入能容纳的部分，返回 io.ErrShortWrite
+		// Insufficient capacity: write what fits, return io.ErrShortWrite
+		n := copy(b.buf[b.pos:], p[:remainingCapacity])
+		b.pos += n
+		return n, io.ErrShortWrite
 	}
 	if len(p) > 0 {
 		// 复制数据并更新位置
