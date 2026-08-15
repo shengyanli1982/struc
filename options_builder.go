@@ -66,9 +66,11 @@ func (b *OptionsBuilder) MustBuild() *Options {
 
 // ==================== 便捷构建函数 ====================
 
-// DefaultOptions 返回默认配置选项
+// DefaultOptions 返回默认配置选项的副本
+// 调用方修改返回值不会影响全局默认配置
 func DefaultOptions() *Options {
-	return defaultPackingOptions
+	options := *defaultPackingOptions
+	return &options
 }
 
 // LittleEndianOptions 返回小端字节序的配置选项

@@ -22,7 +22,7 @@
 
 ## 安装
 
-需要 Go 1.21 及以上版本。
+需要 Go 1.23 及以上版本。
 
 ```bash
 go get github.com/shengyanli1982/struc/v2
@@ -379,25 +379,25 @@ func (i *Int3) String() string {
 
 ```bash
 $ go test -benchmem -run=^$ -bench . github.com/shengyanli1982/struc/v2
-goos: darwin
-goarch: arm64
+goos: windows
+goarch: amd64
 pkg: github.com/shengyanli1982/struc/v2
-cpu: Apple M1 Max
-BenchmarkArrayEncode-10         29082066	        81.34 ns/op	     112 B/op	       2 allocs/op
-BenchmarkSliceEncode-10         27657456	        87.32 ns/op	     112 B/op	       2 allocs/op
-BenchmarkArrayDecode-10         38394547	        62.29 ns/op	      48 B/op	       1 allocs/op
-BenchmarkSliceDecode-10         20125026	       118.5 ns/op	      88 B/op	       3 allocs/op
-BenchmarkEncode-10              22930356	       105.5 ns/op	       0 B/op	       0 allocs/op
-BenchmarkStdlibEncode-10        20051066	       119.6 ns/op	      24 B/op	       1 allocs/op
-BenchmarkManualEncode-10        100000000	        23.81 ns/op	      64 B/op	       1 allocs/op
-BenchmarkDecode-10              16905152	       141.2 ns/op	       8 B/op	       0 allocs/op
-BenchmarkStdlibDecode-10        15727665	       153.2 ns/op	      24 B/op	       1 allocs/op
-BenchmarkManualDecode-10        213900938	        11.07 ns/op	       8 B/op	       1 allocs/op
-BenchmarkFullEncode-10         	 2922501	       865.3 ns/op	       0 B/op	       0 allocs/op
-BenchmarkFullDecode-10         	 2537258	       952.8 ns/op	     124 B/op	       3 allocs/op
-BenchmarkFieldPool-10           38779051	        66.81 ns/op	       0 B/op	       0 allocs/op
-BenchmarkGetFormatString/Simple-10		189453966	        12.91 ns/op	       0 B/op	       0 allocs/op
-BenchmarkGetFormatString/Complex-10		170894043	        12.78 ns/op	       0 B/op	       0 allocs/op
+cpu: 12th Gen Intel(R) Core(TM) i5-12400F
+BenchmarkArrayEncode-12        	25049028	        92.36 ns/op	     112 B/op	       2 allocs/op
+BenchmarkSliceEncode-12        	23261966	       100.4 ns/op	     112 B/op	       2 allocs/op
+BenchmarkArrayDecode-12        	33177994	        67.80 ns/op	      48 B/op	       1 allocs/op
+BenchmarkSliceDecode-12        	18957345	       123.5 ns/op	      88 B/op	       3 allocs/op
+BenchmarkEncode-12             	22766748	       104.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkStdlibEncode-12       	20998532	       112.6 ns/op	      24 B/op	       1 allocs/op
+BenchmarkManualEncode-12       	100000000	        23.58 ns/op	      64 B/op	       1 allocs/op
+BenchmarkDecode-12             	22578205	       101.5 ns/op	       8 B/op	       0 allocs/op
+BenchmarkStdlibDecode-12       	16887980	       141.2 ns/op	      24 B/op	       1 allocs/op
+BenchmarkManualDecode-12       	210867662	        11.32 ns/op	       8 B/op	       1 allocs/op
+BenchmarkFullEncode-12         	 2737231	       874.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFullDecode-12         	 2734852	       881.5 ns/op	     124 B/op	       3 allocs/op
+BenchmarkFieldPool-12          	36808122	        65.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetFormatString/Simple-12         	201164169	        11.90 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetFormatString/Complex-12        	199399143	        12.09 ns/op	       0 B/op	       0 allocs/op
 ```
 
 ### 性能优化详情
@@ -406,6 +406,9 @@ BenchmarkGetFormatString/Complex-10		170894043	        12.78 ns/op	       0 B/op
 
 - **反射缓存**：结构体字段元数据被缓存，避免重复解析开销
 - **固定大小字段优化**：对于具有已知静态大小的字段（基本类型、固定数组、填充），在解析阶段预计算大小，消除 Sizeof 热路径中的反射开销
+- **定长字段批量化读取**：解包时，连续的定长基础类型字段（含定长数组）按解析期预计算的 run 布局通过单次 `ReadFull` 调用读取，消除逐字段的 reader 调用
+- **快路径元数据预计算**：默认选项下的类型解析结果、字节序与数组快路径资格在解析期一次性确定，热循环只做标志位检查
+- **反射惰性构造**：Pack 的标量/数组快路径将 `reflect.Value` 构造延迟到真正需要的慢路径，快路径基于基指针+偏移直接操作
 - **格式字符串缓存**：`GetFormatString` 生成的格式字符串按结构体类型缓存，避免重复解析和构建
 - **直接内存访问**：`sizefrom` 操作通过基指针 + 偏移量直接读取整数值，尽可能绕过反射
 - **BytesSlicePool**：预分配的 4KiB 共享缓冲区池，减少解码期间的内存分配压力

@@ -308,3 +308,100 @@ func TestSliceUnderrun(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// P0-1 回归：按值传入结构体的 Pack 专用类型
+type packByValueStruct struct {
+	A uint32
+	B uint16
+}
+
+// TestPackByValueRoundTrip 回归 P0-1：按值 Pack 必须输出完整字节流，且 round-trip 与按指针一致
+func TestPackByValueRoundTrip(t *testing.T) {
+	in := packByValueStruct{A: 0x11223344, B: 0x5566}
+	expected := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66}
+
+	// 按值 Pack
+	var byValue bytes.Buffer
+	if err := Pack(&byValue, in); err != nil {
+		t.Fatalf("pack by value failed: %v", err)
+	}
+	if !bytes.Equal(byValue.Bytes(), expected) {
+		t.Fatalf("pack by value = %x, want %x", byValue.Bytes(), expected)
+	}
+
+	// 按指针 Pack，输出必须与按值一致
+	var byPointer bytes.Buffer
+	if err := Pack(&byPointer, &in); err != nil {
+		t.Fatalf("pack by pointer failed: %v", err)
+	}
+	if !bytes.Equal(byPointer.Bytes(), byValue.Bytes()) {
+		t.Fatalf("pack by pointer = %x, differs from by value = %x", byPointer.Bytes(), byValue.Bytes())
+	}
+
+	// round-trip
+	out := &packByValueStruct{}
+	if err := Unpack(bytes.NewReader(byValue.Bytes()), out); err != nil {
+		t.Fatalf("unpack failed: %v", err)
+	}
+	if *out != in {
+		t.Fatalf("round trip = %+v, want %+v", *out, in)
+	}
+}
+
+// P0-1 回归：缓存污染顺序验证专用类型
+type packByValueCacheStruct struct {
+	A uint32
+	B uint16
+}
+
+// TestPackByValueThenPointerCache 回归 P0-1：先按值后按指针调用，类型缓存不得产生 0 字节结果
+func TestPackByValueThenPointerCache(t *testing.T) {
+	in := packByValueCacheStruct{A: 0x11223344, B: 0x5566}
+	expected := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66}
+
+	// 先按值调用
+	var first bytes.Buffer
+	if err := Pack(&first, in); err != nil {
+		t.Fatalf("first pack by value failed: %v", err)
+	}
+	// 再按指针调用，缓存必须未被污染
+	var second bytes.Buffer
+	if err := Pack(&second, &in); err != nil {
+		t.Fatalf("second pack by pointer failed: %v", err)
+	}
+	if !bytes.Equal(first.Bytes(), expected) || !bytes.Equal(second.Bytes(), expected) {
+		t.Fatalf("type cache polluted: first = %x, second = %x, want %x", first.Bytes(), second.Bytes(), expected)
+	}
+
+	// GetFormatString 同样走 parseFields 缓存，按值与按指针结果必须一致
+	formatByValue, err := GetFormatString(packByValueCacheStruct{})
+	if err != nil {
+		t.Fatalf("GetFormatString by value failed: %v", err)
+	}
+	formatByPointer, err := GetFormatString(&packByValueCacheStruct{})
+	if err != nil {
+		t.Fatalf("GetFormatString by pointer failed: %v", err)
+	}
+	if formatByValue != formatByPointer || formatByValue == "" {
+		t.Fatalf("format string inconsistent: by value = %q, by pointer = %q", formatByValue, formatByPointer)
+	}
+}
+
+// TestUnpackByValueError 回归 P0-1：向不可设置（按值传入）的结构体 Unpack 必须返回明确错误
+func TestUnpackByValueError(t *testing.T) {
+	data := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66}
+	if err := Unpack(bytes.NewReader(data), packByValueStruct{}); err == nil {
+		t.Fatal("expected error when unpacking into a non-settable struct value")
+	}
+}
+
+// TestUnsupportedTopLevelType 回归 P2-3/P2-4：不支持的顶层类型必须返回错误而不是 panic
+func TestUnsupportedTopLevelType(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Pack(&buf, map[string]int{}); err == nil {
+		t.Fatal("expected error when packing unsupported type")
+	}
+	if size, err := Sizeof(map[string]int{}); err == nil {
+		t.Fatalf("expected error for Sizeof of unsupported type, got size %d", size)
+	}
+}

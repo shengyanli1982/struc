@@ -82,6 +82,7 @@ func parseStructField(structField reflect.StructField) (fieldDesc *Field, fieldT
 
 	fieldDesc = acquireField()
 	fieldDesc.fixedSize = -1
+	fieldDesc.arrayPackFast = false
 
 	fieldDesc.Name = structField.Name
 	fieldDesc.Length = 1
@@ -237,7 +238,12 @@ func parseFieldsLocked(structValue reflect.Value) (Fields, error) {
 			return nil, err
 		}
 
-		if fieldTag.Skip || !structValue.Field(i).CanSet() {
+		// parse 期一次性缓存默认选项语义下的解析类型，供热路径免重复解析使用
+		fieldDesc.defResolved = resolveTypeForOptions(fieldDesc.Type, defaultPackingOptions)
+
+		// 布局解析只依赖类型结构，不依赖值的可写状态：
+		// Pack 只读字段，可写性仅在 Unpack 入口校验；未导出字段不参与序列化。
+		if fieldTag.Skip || !field.IsExported() {
 			releaseField(fieldDesc)
 			continue
 		}
@@ -300,11 +306,16 @@ func parseFieldsLocked(structValue reflect.Value) (Fields, error) {
 			elemSize := f.Type.Size()
 			if f.IsArray && f.IsSlice && f.Length > 0 {
 				f.fixedSize = f.Length * elemSize
+				// 等宽数组 Pack 可整块拷贝; 不等宽(如 [N]int 标注 int8)回落慢路径逐元素处理
+				f.arrayPackFast = kindMatchesType(f.kind, f.Type)
 			} else if !f.IsSlice {
 				f.fixedSize = elemSize
 			}
 		}
 	}
+
+	// parse 期一次性预计算连续定长标量的批量化段，供 Unpack 热路径整段读取
+	fields.computeRuns()
 
 	return fields, nil
 }
