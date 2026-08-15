@@ -192,6 +192,7 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 
 	position := 0
 	basePtr := unsafe.Pointer(structValue.UnsafeAddr())
+	isDefault := isDefaultOptions(options)
 
 	for i, field := range f {
 		if field == nil {
@@ -232,14 +233,16 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 			}
 		}
 
-		fieldValue := structValue.Field(i)
 		if fieldLength <= 0 && field.IsSlice {
-			fieldLength = fieldValue.Len()
+			fieldLength = (*unsafeSliceHeader)(unsafe.Add(basePtr, int(field.Offset))).Len
 		}
 
 		// Fast path for non-slice, non-pointer basic types
 		if !field.IsSlice && !field.IsPointer && field.Type.IsBasicType() && field.kind != reflect.String {
-			byteOrder := field.determineByteOrder(options)
+			byteOrder := field.ByteOrder
+			if !isDefault {
+				byteOrder = field.determineByteOrder(options)
+			}
 			fieldAddr := unsafe.Add(basePtr, int(field.Offset))
 			n, err := packBasicFromAddr(buffer[position:], fieldAddr, field.Type, field.kind, byteOrder)
 			if err != nil {
@@ -250,8 +253,13 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 		}
 
 		// Fast path for [N]basicType arrays: direct memcpy
-		if field.IsArray && field.IsSlice && !field.IsPointer && field.Type.IsBasicType() {
-			byteOrder := field.determineByteOrder(options)
+		// 资格(基础类型数组且 Go 元素与线类型等宽)已在 parse 期预计算为 arrayPackFast;
+		// 不等宽数组(如 [N]int 标注 int8)按线宽步进会读写错位, 回落慢路径逐元素处理
+		if field.arrayPackFast {
+			byteOrder := field.ByteOrder
+			if !isDefault {
+				byteOrder = field.determineByteOrder(options)
+			}
 			elementSize := field.Type.Size()
 			totalBytes := fieldLength * elementSize
 			fieldAddr := unsafe.Add(basePtr, int(field.Offset))
@@ -275,6 +283,7 @@ func (f Fields) Pack(buffer []byte, structValue reflect.Value, options *Options)
 			continue
 		}
 
+		fieldValue := structValue.Field(i)
 		bytesWritten, err := field.Pack(buffer[position:], fieldValue, fieldLength, options)
 		if err != nil {
 			return position + bytesWritten, err
@@ -351,7 +360,7 @@ func (f Fields) unpackSingleStruct(reader io.Reader, fieldValue reflect.Value, n
 
 // unpackBasicType 处理基本类型和自定义类型的解包
 func (f Fields) unpackBasicType(reader io.Reader, fieldValue reflect.Value, field *Field, fieldLength int, options *Options, scratch *scratchArena) error {
-	resolvedType := resolveTypeForOptions(field.Type, options)
+	resolvedType := field.resolvedTypeFor(options)
 	if resolvedType == CustomType {
 		return fieldValue.Addr().Interface().(CustomBinaryer).Unpack(reader, fieldLength, options)
 	}
@@ -380,38 +389,171 @@ func (f Fields) unpackBasicType(reader io.Reader, fieldValue reflect.Value, fiel
 	return field.Unpack(buffer, fieldValue, fieldLength, options)
 }
 
+// isRunMember 判断字段是否可加入批量化读取段。
+// 条件与默认选项下 unpackWithScratch 的快路径语义一致：非指针、
+// 非 struct/custom/string 类型、Go kind 非 string、默认解析类型为基本类型，
+// 且长度不依赖其他字段（Sizefrom 为空）。
+// 定长基础类型数组（Length>0）也可成为成员（成员字节数 = Length × 元素大小），
+// 但要求 kind 与解析类型等宽（run 内整块拷贝）且无需逐元素字节序交换；
+// 大端多字节数组不入 run，保持慢路径的逐元素交换语义，正确性优先。
+func isRunMember(field *Field) bool {
+	if field == nil || field.Sizefrom != nil || field.IsPointer ||
+		field.Type == Struct || field.Type == CustomType || field.Type == String ||
+		field.kind == reflect.String || !field.defResolved.IsBasicType() {
+		return false
+	}
+	if field.IsSlice && !field.IsArray {
+		return false
+	}
+	if field.IsArray {
+		if field.Length <= 0 || !kindMatchesType(field.kind, field.defResolved) {
+			return false
+		}
+		// 大端多字节数组需要逐元素字节序交换，不入 run，保持慢路径语义
+		if field.defResolved.Size() > 1 && field.ByteOrder != nil && field.ByteOrder != binary.LittleEndian {
+			return false
+		}
+	}
+	return true
+}
+
+// kindMatchesType 判断 Go 基础 kind 的内存占用是否与二进制类型的字节宽度一致。
+// 仅当一致时，数组元素才能在内存与 buffer 之间按布局整块拷贝而无需逐元素转换；
+// 不一致（如 int 字段标注 int32）的数组保持原有慢路径，正确性优先。
+func kindMatchesType(kind reflect.Kind, resolved Type) bool {
+	switch resolved {
+	case Bool:
+		return kind == reflect.Bool
+	case Int8:
+		return kind == reflect.Int8
+	case Uint8:
+		return kind == reflect.Uint8
+	case Int16:
+		return kind == reflect.Int16
+	case Uint16:
+		return kind == reflect.Uint16
+	case Int32:
+		return kind == reflect.Int32
+	case Uint32:
+		return kind == reflect.Uint32
+	case Int64:
+		return kind == reflect.Int64
+	case Uint64:
+		return kind == reflect.Uint64
+	case Float32:
+		return kind == reflect.Float32
+	case Float64:
+		return kind == reflect.Float64
+	}
+	return false
+}
+
+// computeRuns 预计算连续定长字段（标量与定长基础类型数组）组成的批量化段（run）。
+// 段头字段记录全段总字节数 runBytes 与段内字段数 runLen，
+// 供 unpackWithScratch 在默认选项下一次读取整段后按偏移逐个解码。
+func (f Fields) computeRuns() {
+	start, total, count := -1, 0, 0
+	for i, field := range f {
+		if isRunMember(field) {
+			if start < 0 {
+				start = i
+			}
+			size := field.defResolved.Size()
+			if field.IsArray {
+				size *= field.Length
+			}
+			total += size
+			count++
+			continue
+		}
+		if count > 1 {
+			f[start].runBytes = total
+			f[start].runLen = count
+		}
+		start, total, count = -1, 0, 0
+	}
+	if count > 1 {
+		f[start].runBytes = total
+		f[start].runLen = count
+	}
+}
+
+// unpackRun 解码批量化段：一次 ReadFull 读入整段，段内按累计偏移切片逐个解码。
+// 段布局在 parse 期由 computeRuns 预计算，段内成员均为定长标量或定长基础类型数组且非 nil。
+func (f Fields) unpackRun(reader io.Reader, start int, head *Field, basePtr unsafe.Pointer, scratch *scratchArena) error {
+	buffer := scratch.Get(head.runBytes)
+	if _, err := io.ReadFull(reader, buffer); err != nil {
+		return err
+	}
+	off := 0
+	for j := 0; j < head.runLen; j++ {
+		member := f[start+j]
+		size := member.defResolved.Size()
+		fieldAddr := unsafe.Add(basePtr, int(member.Offset))
+		if member.IsArray {
+			size *= member.Length
+			// 入 run 的数组 kind 与二进制类型等宽且无需字节序交换，直接整块拷贝到数组内存
+			copy(unsafe.Slice((*byte)(fieldAddr), size), buffer[off:off+size])
+		} else if err := unpackBasicFromAddr(buffer[off:off+size], fieldAddr, member.defResolved, member.kind, member.ByteOrder); err != nil {
+			return err
+		}
+		off += size
+	}
+	return nil
+}
+
 func (f Fields) unpackWithScratch(reader io.Reader, structValue reflect.Value, options *Options, scratch *scratchArena) error {
 	for structValue.Kind() == reflect.Ptr {
 		structValue = structValue.Elem()
 	}
 	basePtr := unsafe.Pointer(structValue.UnsafeAddr())
+	isDefault := isDefaultOptions(options)
 
-	for _, field := range f {
+	for i := 0; i < len(f); i++ {
+		field := f[i]
 		if field == nil {
 			continue
 		}
 
-		fieldAddr := unsafe.Add(basePtr, int(field.Offset))
-		fieldLength := field.Length
-		if field.Sizefrom != nil {
-			fieldLength = f.sizefromUnsafe(basePtr, field.Sizefrom, structValue)
+		// 批量化段：连续定长标量与定长基础类型数组整段读取，仅默认选项启用
+		if isDefault && field.runBytes > 0 {
+			if err := f.unpackRun(reader, i, field, basePtr, scratch); err != nil {
+				return err
+			}
+			i += field.runLen - 1
+			continue
 		}
+
+		fieldAddr := unsafe.Add(basePtr, int(field.Offset))
 
 		if !field.IsSlice && !field.IsPointer && field.Type != Struct && field.Type != CustomType && field.Type != String &&
 			field.kind != reflect.String {
-			resolvedType := resolveTypeForOptions(field.Type, options)
+			resolvedType := field.defResolved
+			if !isDefault {
+				resolvedType = resolveTypeForOptions(field.Type, options)
+			}
 			if resolvedType.IsBasicType() {
 				dataSize := resolvedType.Size()
 				buffer := scratch.Get(dataSize)
 				if _, err := io.ReadFull(reader, buffer); err != nil {
 					return err
 				}
-				byteOrder := field.determineByteOrder(options)
+				byteOrder := field.ByteOrder
+				if !isDefault {
+					byteOrder = field.determineByteOrder(options)
+				}
 				if err := unpackBasicFromAddr(buffer, fieldAddr, resolvedType, field.kind, byteOrder); err != nil {
 					return err
 				}
 				continue
 			}
+		}
+
+		// fieldLength 仅慢路径消费；sizefromUnsafe 只读取字段值，
+		// 下移到此处不改变字段间的读取顺序语义
+		fieldLength := field.Length
+		if field.Sizefrom != nil {
+			fieldLength = f.sizefromUnsafe(basePtr, field.Sizefrom, structValue)
 		}
 
 		fieldValue := structValue.Field(field.Index)

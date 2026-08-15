@@ -14,22 +14,26 @@ import (
 // Field 表示结构体中的单个字段
 // 包含了字段的所有元数据信息，用于二进制打包和解包
 type Field struct {
-	Name       string           // 字段名称
-	IsPointer  bool             // 字段是否为指针类型
-	Index      int              // 字段在结构体中的索引
-	Type       Type             // 字段的二进制类型
-	defType    Type             // 默认的二进制类型
-	IsArray    bool             // 字段是否为数组
-	IsSlice    bool             // 字段是否为切片
-	Length     int              // 数组/固定切片的长度
-	ByteOrder  binary.ByteOrder // 字段的字节序
-	Sizeof     []int            // sizeof 引用的字段索引
-	Sizefrom   []int            // 大小引用的字段索引
-	NestFields Fields           // 嵌套结构体的字段
-	Offset     uintptr          // byte offset of this field within the struct
-	fieldType  reflect.Type     // actual reflect.Type of the struct field
-	kind       reflect.Kind     // Go 的反射类型
-	fixedSize  int              // -1=dynamic, >=0=precomputed size under defaultPackingOptions
+	Name          string           // 字段名称
+	IsPointer     bool             // 字段是否为指针类型
+	Index         int              // 字段在结构体中的索引
+	Type          Type             // 字段的二进制类型
+	defType       Type             // 默认的二进制类型
+	IsArray       bool             // 字段是否为数组
+	IsSlice       bool             // 字段是否为切片
+	arrayPackFast bool             // parse 期预计算: 基础类型数组且 Go 元素与线类型等宽, Pack 可走整块拷贝快路径
+	Length        int              // 数组/固定切片的长度
+	ByteOrder     binary.ByteOrder // 字段的字节序
+	Sizeof        []int            // sizeof 引用的字段索引
+	Sizefrom      []int            // 大小引用的字段索引
+	NestFields    Fields           // 嵌套结构体的字段
+	Offset        uintptr          // byte offset of this field within the struct
+	fieldType     reflect.Type     // actual reflect.Type of the struct field
+	kind          reflect.Kind     // Go 的反射类型
+	fixedSize     int              // -1=dynamic, >=0=precomputed size under defaultPackingOptions
+	defResolved   Type             // resolved Type under defaultPackingOptions semantics, cached at parse time
+	runBytes      int              // 批量化段总字节数，仅段头字段有效；>0 表示该字段是批量化段起点
+	runLen        int              // 批量化段内字段数，仅段头字段有效
 }
 
 // ==================== 基础工具函数 ====================
@@ -103,6 +107,22 @@ func (f *Field) determineByteOrder(options *Options) binary.ByteOrder {
 	return f.ByteOrder
 }
 
+// isDefaultOptions 判断选项语义是否等价于 defaultPackingOptions
+// 指针同一性判定优先，覆盖 Pack/Unpack 未显式传 options 的内部路径
+func isDefaultOptions(options *Options) bool {
+	return options == defaultPackingOptions ||
+		(options != nil && options.Order == nil && options.ByteAlign == 0 && options.PtrSize == defaultPackingOptions.PtrSize)
+}
+
+// resolvedTypeFor 返回按给定选项解析后的字段类型
+// 默认选项语义下直接返回 parse 期缓存的 defResolved，避免热路径重复解析
+func (f *Field) resolvedTypeFor(options *Options) Type {
+	if isDefaultOptions(options) {
+		return f.defResolved
+	}
+	return resolveTypeForOptions(f.Type, options)
+}
+
 // getIntegerValue 从 reflect.Value 中提取整数值
 // 处理布尔值、有符号和无符号整数
 func (f *Field) getIntegerValue(fieldValue reflect.Value) uint64 {
@@ -124,7 +144,7 @@ func (f *Field) getIntegerValue(fieldValue reflect.Value) uint64 {
 // Size 计算字段在二进制格式中占用的字节数
 // 考虑了对齐和填充要求
 func (f *Field) Size(fieldValue reflect.Value, options *Options) int {
-	resolvedType := resolveTypeForOptions(f.Type, options)
+	resolvedType := f.resolvedTypeFor(options)
 	totalSize := 0
 
 	switch resolvedType {
@@ -197,7 +217,7 @@ func (f *Field) alignSize(size int, options *Options) int {
 // Pack 将字段值打包到缓冲区中
 // 处理所有类型的字段，包括填充、切片和单个值
 func (f *Field) Pack(buffer []byte, fieldValue reflect.Value, length int, options *Options) (int, error) {
-	if resolvedType := resolveTypeForOptions(f.Type, options); resolvedType == Pad {
+	if resolvedType := f.resolvedTypeFor(options); resolvedType == Pad {
 		return f.packPaddingBytes(buffer, length)
 	}
 
@@ -211,10 +231,15 @@ func (f *Field) Pack(buffer []byte, fieldValue reflect.Value, length int, option
 func (f *Field) packSingleValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) (size int, err error) {
 	byteOrder := f.determineByteOrder(options)
 	if f.IsPointer {
-		fieldValue = fieldValue.Elem()
+		if elem := fieldValue.Elem(); elem.IsValid() {
+			fieldValue = elem
+		} else {
+			// nil 指针字段按零值写入, 与 Unpack 侧为 nil 指针分配的行为对称
+			fieldValue = reflect.Zero(fieldValue.Type().Elem())
+		}
 	}
 
-	resolvedType := resolveTypeForOptions(f.Type, options)
+	resolvedType := f.resolvedTypeFor(options)
 
 	// 优化: 对基本类型进行快速处理
 	if resolvedType.IsBasicType() {
@@ -285,7 +310,7 @@ func (f *Field) packCustom(buffer []byte, fieldValue reflect.Value, options *Opt
 // packSliceValue 打包切片值到缓冲区
 // 处理字节切片和其他类型的切片
 func (f *Field) packSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) (int, error) {
-	resolvedType := resolveTypeForOptions(f.Type, options)
+	resolvedType := f.resolvedTypeFor(options)
 	if resolvedType == Struct && !f.NestFields.hasActiveFields() {
 		return 0, nil
 	}
@@ -422,7 +447,7 @@ func (f *Field) writeFloat(buffer []byte, floatValue float64, resolvedType Type,
 // Unpack 从缓冲区中解包字段值
 // 处理所有类型的字段值的解包
 func (f *Field) Unpack(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
-	resolvedType := resolveTypeForOptions(f.Type, options)
+	resolvedType := f.resolvedTypeFor(options)
 
 	if resolvedType == Pad || f.kind == reflect.String {
 		return f.unpackPaddingOrStringValue(buffer, fieldValue, resolvedType)
@@ -448,7 +473,7 @@ func (f *Field) unpackPaddingOrStringValue(buffer []byte, fieldValue reflect.Val
 // unpackSliceValue 处理切片类型的解包
 // 使用 unsafe 优化切片处理，减少内存拷贝
 func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length int, options *Options) error {
-	resolvedType := resolveTypeForOptions(f.Type, options)
+	resolvedType := f.resolvedTypeFor(options)
 	byteOrder := f.determineByteOrder(options)
 
 	// 数组 [N]byte / [N]uint8：字节序无关，直接拷贝内存，避免逐元素 reflect。
@@ -478,10 +503,16 @@ func (f *Field) unpackSliceValue(buffer []byte, fieldValue reflect.Value, length
 			fieldValue.Set(reflect.MakeSlice(fieldValue.Type(), length, length))
 		} else if fieldValue.Len() < length {
 			fieldValue.Set(fieldValue.Slice(0, length))
+		} else if fieldValue.Len() > length {
+			// 复用对象解包更短消息时截断多余元素, 避免残留脏数据
+			fieldValue.Set(fieldValue.Slice(0, length))
 		}
 	}
 
-	if resolvedType.IsBasicType() && (byteOrder == nil || byteOrder == binary.LittleEndian) {
+	// 切片与等宽数组在小端/无字节序下可直接整块拷贝;
+	// 不等宽数组(如 [N]int 标注 int8)必须走下方逐元素路径做元素宽度转换
+	if resolvedType.IsBasicType() && (byteOrder == nil || byteOrder == binary.LittleEndian) &&
+		(!f.IsArray || kindMatchesType(f.kind, resolvedType)) {
 		unsafeMoveSlice(fieldValue, reflect.ValueOf(buffer))
 		return nil
 	}
@@ -506,7 +537,7 @@ func (f *Field) unpackSingleValue(buffer []byte, fieldValue reflect.Value, lengt
 		fieldValue = fieldValue.Elem()
 	}
 
-	resolvedType := resolveTypeForOptions(f.Type, options)
+	resolvedType := f.resolvedTypeFor(options)
 
 	// 优化: 对基本类型进行快速处理
 	if resolvedType.IsBasicType() {

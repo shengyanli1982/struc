@@ -39,6 +39,11 @@ func unsafeString2Bytes(s string) []byte {
 
 // unsafeSetSlice 使用 unsafe 直接设置切片的底层数据, 避免内存拷贝
 func unsafeSetSlice(fieldValue reflect.Value, buffer []byte, length int) {
+	if length == 0 {
+		// 空切片没有可指向的底层数据, 直接设置空切片, 避免 &buffer[0] 越界
+		fieldValue.Set(reflect.MakeSlice(fieldValue.Type(), 0, 0))
+		return
+	}
 	sh := (*unsafeSliceHeader)(unsafe.Pointer(fieldValue.UnsafeAddr()))
 	sh.Data = uintptr(unsafe.Pointer(&buffer[0]))
 	sh.Len = length
@@ -145,7 +150,15 @@ func unsafeMoveSlice(dst, src reflect.Value) {
 	elemSize := int(dst.Type().Elem().Size())
 
 	srcBytes := unsafe.Slice((*byte)(unsafe.Pointer(src.Pointer())), srcLen)
-	dstBytes := unsafe.Slice((*byte)(unsafe.Pointer(dst.Pointer())), dstLen*elemSize)
+
+	// Array kind 调用 reflect.Value.Pointer 会 panic, 需用 UnsafeAddr 取址;
+	// dst 字节数语义与 slice 路径保持一致(len*elemSize)
+	var dstBytes []byte
+	if dst.Kind() == reflect.Array {
+		dstBytes = unsafe.Slice((*byte)(unsafe.Pointer(dst.UnsafeAddr())), dstLen*elemSize)
+	} else {
+		dstBytes = unsafe.Slice((*byte)(unsafe.Pointer(dst.Pointer())), dstLen*elemSize)
+	}
 
 	n := srcLen
 	if n > len(dstBytes) {

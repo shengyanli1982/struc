@@ -247,6 +247,8 @@ func releaseField(f *Field) {
 	f.fieldType = nil
 	f.kind = reflect.Invalid
 	f.fixedSize = 0
+	f.runBytes = 0
+	f.runLen = 0
 
 	fieldPool.Put(f)
 }
@@ -286,17 +288,28 @@ func NewBytesSlicePool(size int) *BytesSlicePool {
 
 // GetSlice 返回指定大小的字节切片
 // 如果当前块空间不足，会分配新的块并重置偏移量
+//
+// 快路径时序（ERC#P0-2 竞态修复）：先记录底层数组指针，再用 CAS 预留偏移，
+// CAS 成功后重新加载数组指针校验换代。若慢路径在预留期间换了数组，
+// 基于旧数组记账的预留作废、转入慢路径重新分配。这样能防止"用旧偏移
+// 切片新数组"导致两个调用者持有重叠内存、互相覆盖借用数据的问题。
 func (b *BytesSlicePool) GetSlice(size int) []byte {
 	// 如果请求的大小超过了最大限制，直接分配新的切片
 	if size > b.size {
 		return make([]byte, size)
 	}
 
+	// 快路径：先记录当前数组指针，再 CAS 预留偏移
+	bytesPtr := b.bytesPtr.Load()
 	currentOffset := b.offset.Load()
 	if int(currentOffset)+size <= b.size {
 		newOffset := currentOffset + int32(size)
 		if b.offset.CompareAndSwap(currentOffset, newOffset) {
-			return (*b.bytesPtr.Load())[currentOffset:newOffset]
+			// 慢路径换代时会 Store 新数组指针，因此重新加载指针即可感知换代
+			if b.bytesPtr.Load() == bytesPtr {
+				return (*bytesPtr)[currentOffset:newOffset]
+			}
+			// 数组已被换代，本次 CAS 预留基于旧数组的记账，作废并转入慢路径
 		}
 	}
 
@@ -305,18 +318,30 @@ func (b *BytesSlicePool) GetSlice(size int) []byte {
 }
 
 // getSliceSlow 是 GetSlice 的慢路径实现
-// 使用互斥锁保护重置操作，减少竞争
+// 使用互斥锁串行化换代与预留，减少竞争
 func (b *BytesSlicePool) getSliceSlow(size int) []byte {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if int(b.offset.Load())+size > b.size {
-		newBytes := make([]byte, b.size)
-		b.bytesPtr.Store(&newBytes)
-		b.offset.Store(0)
-	}
-	start := b.offset.Load()
-	b.offset.Add(int32(size))
+	for {
+		if int(b.offset.Load())+size > b.size {
+			newBytes := make([]byte, b.size)
+			// 换代顺序：先 Store 新数组指针，再重置偏移。
+			// 该顺序与快路径校验配合：快路径以指针是否变化判定换代，
+			// 指针变化意味着所有基于旧记账的预留一律作废。
+			b.bytesPtr.Store(&newBytes)
+			b.offset.Store(0)
+		}
 
-	return (*b.bytesPtr.Load())[start : start+int32(size)]
+		// 预留采用与快路径一致的 CAS 原子操作，避免"Load 偏移 → Add 偏移"
+		// 两步之间与快路径交错，向两个调用者发出重叠切片
+		currentOffset := b.offset.Load()
+		newOffset := currentOffset + int32(size)
+		if int(newOffset) <= b.size && b.offset.CompareAndSwap(currentOffset, newOffset) {
+			// 持有互斥锁期间只有慢路径能换代，此处指针稳定
+			return (*b.bytesPtr.Load())[currentOffset:newOffset]
+		}
+		// CAS 失败（快路径并发推进了偏移）或空间不足：重试，
+		// 必要时在循环顶部换入新块
+	}
 }

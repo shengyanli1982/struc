@@ -43,11 +43,18 @@ func PackWithOptions(writer io.Writer, data interface{}, options *Options) error
 		return fmt.Errorf("preparation failed: %w", err)
 	}
 
+	// Pack 只读取数据，但底层依赖 unsafe 地址计算，要求值可寻址；
+	// 按值传入的结构体先复制到可寻址位置。
+	value = makeStructAddressable(value)
+
 	if value.Type().Kind() == reflect.String {
 		value = value.Convert(reflect.TypeOf([]byte{}))
 	}
 
 	bufferSize := packer.Sizeof(value, options)
+	if bufferSize < 0 {
+		return ErrUnsupportedTypef("cannot pack value of type %T", data)
+	}
 	if bufferSize == 0 {
 		return nil
 	}
@@ -168,6 +175,11 @@ func UnpackWithOptions(reader io.Reader, data interface{}, options *Options) err
 		return fmt.Errorf("preparation failed: %w", err)
 	}
 
+	// Unpack 需要写回数据，结构体值必须可设置（按值传入的副本无法写回）。
+	if value.Kind() == reflect.Struct && !value.CanSet() {
+		return fmt.Errorf("cannot unpack into non-settable value of type %v; pass a pointer", value.Type())
+	}
+
 	return packer.Unpack(reader, value, options)
 }
 
@@ -195,7 +207,14 @@ func SizeofWithOptions(data interface{}, options *Options) (int, error) {
 		return 0, fmt.Errorf("preparation failed: %w", err)
 	}
 
-	return packer.Sizeof(value, options), nil
+	// 按值传入的结构体不可寻址，部分 Size 路径（如自定义类型）需要可寻址的字段值。
+	value = makeStructAddressable(value)
+
+	size := packer.Sizeof(value, options)
+	if size < 0 {
+		return 0, ErrUnsupportedTypef("cannot compute size of value of type %T", data)
+	}
+	return size, nil
 }
 
 // prepareValueForPacking 准备一个值用于打包或解包
@@ -238,4 +257,15 @@ func prepareValueForPacking(data interface{}) (reflect.Value, Packer, error) {
 	}
 
 	return value, packer, nil
+}
+
+// makeStructAddressable 在结构体值不可寻址（例如按值传入）时返回其可寻址副本。
+// 只读路径（Pack/Sizeof）借助该副本可安全使用 unsafe 地址计算。
+func makeStructAddressable(value reflect.Value) reflect.Value {
+	if value.Kind() == reflect.Struct && !value.CanAddr() {
+		addressable := reflect.New(value.Type()).Elem()
+		addressable.Set(value)
+		return addressable
+	}
+	return value
 }
